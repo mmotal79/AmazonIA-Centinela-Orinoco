@@ -1,0 +1,121 @@
+[
+  {
+    "name": "Sector La Paragua",
+    "lat": 6.833,
+    "lng": -63.366,
+    "state": "Bolívar",
+    "basin": "Río Caroní / Paragua"
+  },
+  {
+    "name": "Sector Las Claritas / Km 88",
+    "lat": 6.183,
+    "lng": -61.416,
+    "state": "Bolívar",
+    "basin": "Río Cuyuní"
+  },
+  {
+    "name": "Sector El Callao",
+    "lat": 7.348,
+    "lng": -61.828,
+    "state": "Bolívar",
+    "basin": "Río Yuruarí"
+  },
+  {
+    "name": "Sector Tumeremo",
+    "lat": 7.296,
+    "lng": -61.503,
+    "state": "Bolívar",
+    "basin": "Río Cuyuní"
+  },
+  {
+    "name": "Sector Guasipati",
+    "lat": 7.472,
+    "lng": -61.898,
+    "state": "Bolívar",
+    "basin": "Río Yuruarí"
+  },
+  {
+    "name": "Sector Caicara del Orinoco",
+    "lat": 7.62,
+    "lng": -66.16,
+    "state": "Bolívar",
+    "basin": "Medio Orinoco"
+  },
+  {
+    "name": "Sector Maripa",
+    "lat": 7.42,
+    "lng": -65.17,
+    "state": "Bolívar",
+    "basin": "Bajo Caura"
+  },
+  {
+    "name": "Sector Ikabarú",
+    "lat": 4.341,
+    "lng": -61.735,
+    "state": "Bolívar",
+    "basin": "Alto Caroní"
+  },
+  {
+    "name": "Sector Puerto Ayacucho",
+    "lat": 5.66,
+    "lng": -67.62,
+    "state": "Amazonas",
+    "basin": "Medio Orinoco"
+  },
+  {
+    "name": "Sector San Fernando de Atabapo",
+    "lat": 4.048,
+    "lng": -67.701,
+    "state": "Amazonas",
+    "basin": "Alto Orinoco / Atabapo"
+  },
+  {
+    "name": "Sector San Carlos de Río Negro",
+    "lat": 1.916,
+    "lng": -67.065,
+    "state": "Amazonas",
+    "basin": "Brazo Casiquiare"
+  },
+  {
+    "name": "Sector San Juan de Manapiare",
+    "lat": 5.316,
+    "lng": -66.05,
+    "state": "Amazonas",
+    "basin": "Río Ventuari"
+  },
+  {
+    "name": "Sector La Esmeralda",
+    "lat": 3.17,
+    "lng": -65.54,
+    "state": "Amazonas",
+    "basin": "Alto Orinoco"
+  },
+  {
+    "name": "Sector Tucupita",
+    "lat": 9.06,
+    "lng": -62.05,
+    "state": "Delta Amacuro",
+    "basin": "Delta del Orinoco"
+  },
+  {
+    "name": "Sector Pedernales",
+    "lat": 9.97,
+    "lng": -62.25,
+    "state": "Delta Amacuro",
+    "basin": "Delta Caño Manamo"
+  },
+  {
+    "name": "Sector San Fernando de Apure",
+    "lat": 7.89,
+    "lng": -67.47,
+    "state": "Apure",
+    "basin": "Bajo Apure"
+  },
+  {
+    "name": "Sector Guasdualito",
+    "lat": 7.24,
+    "lng": -70.73,
+    "state": "Apure",
+    "basin": "Alto Apure"
+  }
+]
