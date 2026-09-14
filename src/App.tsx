@@ -277,6 +277,16 @@ export default function App() {
           <TelemetryView
             stations={hydrologicalStations}
             onRefresh={loadData}
+            onSelectStationOnMap={(station) => {
+              if (station?.coordinates && Array.isArray(station.coordinates)) {
+                setMapFocusCoords({
+                  lng: station.coordinates[0],
+                  lat: station.coordinates[1],
+                  zoom: 11
+                });
+                setCurrentView('MAP_SITUATION');
+              }
+            }}
           />
         )}
 

@@ -185,8 +185,17 @@ export const TelemetryView: React.FC<TelemetryViewProps> = ({
               </div>
             </div>
 
-            <div className="text-[11px] text-slate-500 font-mono pt-1">
-              Última telemetría recibida: {currentStation.lastTelemetry}
+            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1">
+              <span>Última telemetría: {currentStation.lastTelemetry}</span>
+              {onSelectStationOnMap && (
+                <button
+                  onClick={() => onSelectStationOnMap(currentStation)}
+                  className="flex items-center gap-1 text-sky-400 hover:text-sky-300 font-sans font-medium hover:underline cursor-pointer"
+                >
+                  <span>Ver en Sala GIS</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         )}
