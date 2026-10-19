@@ -38,7 +38,7 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'NASA Earthdata / LANCE FIRMS',
     category: 'THERMAL_INFRARED',
     sensorMissions: ['VIIRS (Suomi-NPP & NOAA-20)', 'MODIS (Terra & Aqua)'],
-    activeUrl: 'https://firms.modaps.eosdis.nasa.gov/api/country/csv/[API_KEY]/VIIRS_NOAA20_NRT/VEN/1',
+    activeUrl: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-68.5,0.5,-58.5,10.2/1',
     baseUrlTemplate: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{SOURCE}/{WEST,SOUTH,EAST,NORTH}/{DAY_RANGE}',
     documentationUrl: 'https://firms.modaps.eosdis.nasa.gov/api/data_specs/',
     updateFrequency: 'Cada 3 horas (NRT - Near Real Time)',
@@ -53,11 +53,11 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     authType: 'MAP_KEY_PARAM',
     description: 'Ingesta continua de anomalías térmicas y focos de calor activos causados por hornos de fundición minera, deforestación por tala y quema y campamentos en la selva.',
     payloadFormat: 'CSV',
-    sampleCurlCommand: 'curl -X GET "https://firms.modaps.eosdis.nasa.gov/api/area/csv/YOUR_MAP_KEY/VIIRS_NOAA20_NRT/-68.5,0.5,-58.5,10.2/1"',
+    sampleCurlCommand: 'curl -X GET "https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-68.5,0.5,-58.5,10.2/1"',
     queryParameters: [
-      { name: 'MAP_KEY', description: 'Clave de acceso gratuita emitida por NASA Earthdata LANCE', example: 'd8a39f1c7e...' },
+      { name: 'MAP_KEY', description: 'Clave de acceso gratuita emitida por NASA Earthdata LANCE', example: '410a5c80fc9842ac862618aec22a0943' },
       { name: 'SOURCE', description: 'Sensor satelital (VIIRS_NOAA20_NRT, VIIRS_SNPP_NRT, MODIS_NRT)', example: 'VIIRS_NOAA20_NRT' },
-      { name: 'AREA_COORDINATES', description: 'Bounding Box geográfico [W,S,E,N] de la Amazonía venezolana', example: '-68.5,0.5,-58.5,10.2' },
+      { name: 'AREA_COORDINATES', description: 'Bounding Box geográfico [W,S,E,N] de la Amazonía venezolana y Guayana', example: '-68.5,0.5,-58.5,10.2' },
       { name: 'DAY_RANGE', description: 'Número de días retrospectivos a consultar (1 a 10)', example: '1' }
     ]
   },
@@ -67,9 +67,9 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'NASA GIBS (Global Imagery Browse Services)',
     category: 'THERMAL_INFRARED',
     sensorMissions: ['VIIRS 375m Active Fire', 'MODIS Thermal Anomaly 1km'],
-    activeUrl: 'https://firms.modaps.eosdis.nasa.gov/mapserver/wms/firms/[API_KEY]/?SERVICE=WMS&REQUEST=GetMap&LAYERS=fires_viirs_noaa20_24&BBOX=-68.5,0.5,-58.5,10.2&WIDTH=1024&HEIGHT=768&FORMAT=image/png',
-    baseUrlTemplate: 'https://firms.modaps.eosdis.nasa.gov/mapserver/wms/firms/{MAP_KEY}/',
-    documentationUrl: 'https://firms.modaps.eosdis.nasa.gov/web-services/',
+    activeUrl: 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&LAYERS=VIIRS_NOAA20_Thermal_Anomalies_375m_All&VERSION=1.3.0&FORMAT=image/png&TRANSPARENT=TRUE&WIDTH=1024&HEIGHT=768&CRS=EPSG:4326&BBOX=0.5,-68.5,10.2,-58.5',
+    baseUrlTemplate: 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&LAYERS={LAYER}&VERSION=1.3.0&FORMAT=image/png&TRANSPARENT=TRUE&WIDTH={WIDTH}&HEIGHT={HEIGHT}&CRS=EPSG:4326&BBOX={SOUTH,WEST,NORTH,EAST}',
+    documentationUrl: 'https://www.earthdata.nasa.gov/eosdis/science-system-disciplines/gibs',
     updateFrequency: 'Tiempo casi real (Streaming WMS/WFS)',
     spatialResolution: '375m / Vectorial',
     amazonBoundingBox: {
@@ -79,14 +79,17 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
       north: 10.2,
       bboxString: '-68.5,0.5,-58.5,10.2',
     },
-    authType: 'MAP_KEY_PARAM',
-    description: 'Servicio Web Cartográfico OGC (WMS/WFS) para renderizado rasterizado superpuesto sobre capas tácticas Leaflet y QGIS.',
-    payloadFormat: 'GEOJSON',
-    sampleCurlCommand: 'curl -X GET "https://firms.modaps.eosdis.nasa.gov/api/v2/nrt/fire_alerts/geojson?country=VEN&date_range=1&key=YOUR_MAP_KEY"',
+    authType: 'PUBLIC_OGC',
+    description: 'Servicio Web Cartográfico OGC (WMS) para renderizado rasterizado superpuesto sobre capas tácticas Leaflet y QGIS.',
+    payloadFormat: 'PNG_WMS',
+    sampleCurlCommand: 'curl -X GET "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&LAYERS=VIIRS_NOAA20_Thermal_Anomalies_375m_All&VERSION=1.3.0&FORMAT=image/png&TRANSPARENT=TRUE&WIDTH=1024&HEIGHT=768&CRS=EPSG:4326&BBOX=0.5,-68.5,10.2,-58.5"',
     queryParameters: [
-      { name: 'LAYERS', description: 'Capa seleccionada (fires_viirs_noaa20_24, fires_modis_24)', example: 'fires_viirs_noaa20_24' },
-      { name: 'BBOX', description: 'Coordenadas del visor espacial', example: '-68.5,0.5,-58.5,10.2' },
-      { name: 'CRS', description: 'Sistema de referencia de coordenadas', example: 'EPSG:4326' }
+      { name: 'SERVICE', description: 'Nombre del servicio web OGC estándar', example: 'WMS' },
+      { name: 'REQUEST', description: 'Operación WMS a ejecutar para solicitar el mapa renderizado', example: 'GetMap' },
+      { name: 'VERSION', description: 'Versión del protocolo WMS de la NASA', example: '1.3.0' },
+      { name: 'LAYERS', description: 'Capa seleccionada', example: 'VIIRS_NOAA20_Thermal_Anomalies_375m_All' },
+      { name: 'BBOX', description: 'Coordenadas del visor en estándar OGC WMS 1.3.0 [Sur,Oeste,Norte,Este]', example: '0.5,-68.5,10.2,-58.5' },
+      { name: 'CRS', description: 'Sistema de referencia de coordenadas espaciales', example: 'EPSG:4326' }
     ]
   },
   {
@@ -95,9 +98,9 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'Agencia Espacial Europea (ESA) / Unión Europea',
     category: 'SAR_RADAR',
     sensorMissions: ['Sentinel-1A / Sentinel-1C (Banda C SAR, Polarización Dual VV+VH)'],
-    activeUrl: 'https://catalogue.dataspace.copernicus.eu/resto/api/collections/Sentinel1/search.json?box=-68.5,0.5,-58.5,10.2&productType=GRD&sensorMode=IW',
-    baseUrlTemplate: 'https://catalogue.dataspace.copernicus.eu/resto/api/collections/Sentinel1/search.json?{QUERY_PARAMS}',
-    documentationUrl: 'https://dataspace.copernicus.eu/analyse/apis/opensearch',
+    activeUrl: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-68.5,0.5,-58.5,10.2&collections=sentinel-1-grd&datetime=2024-10-19T00:00:00Z/2026-10-19T23:59:59Z&limit=100',
+    baseUrlTemplate: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox={WEST,SOUTH,EAST,NORTH}&collections={COLLECTION}&datetime={START_DATE}/{END_DATE}&limit={LIMIT}',
+    documentationUrl: 'https://documentation.dataspace.copernicus.eu/APIs/STAC.html',
     updateFrequency: 'Cada 6 a 12 días por pasada orbital',
     spatialResolution: '10 metros (GRD Ground Range Detected - Interferometric Wide)',
     amazonBoundingBox: {
@@ -109,18 +112,18 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     },
     authType: 'BEARER_TOKEN_OAUTH2',
     description: 'Catálogo e índice de pasadas de radar de apertura sintética (SAR). Penetra la nubosidad perpetua de la selva amazónica para detectar desmonte, pistas clandestinas y dragado aluvial.',
-    payloadFormat: 'JSON',
-    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/resto/api/collections/Sentinel1/search.json?box=-68.5,0.5,-58.5,10.2&productType=GRD&startDate=2026-08-01T00:00:00Z"',
+    payloadFormat: 'GEOJSON_STAC',
+    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-68.5,0.5,-58.5,10.2&collections=sentinel-1-grd&datetime=2024-10-19T00:00:00Z/2026-10-19T23:59:59Z&limit=100"',
     queryParameters: [
-      { name: 'box', description: 'Bounding box en grados decimales [W,S,E,N]', example: '-68.5,0.5,-58.5,10.2' },
-      { name: 'productType', description: 'Nivel de procesamiento (GRD, SLC, OCN)', example: 'GRD' },
-      { name: 'sensorMode', description: 'Modo del sensor (IW = Interferometric Wide Swath)', example: 'IW' },
-      { name: 'polarisation', description: 'Polarización dual radar (VV+VH)', example: 'VV VH' }
+      { name: 'bbox', description: 'Bounding box geográfico en grados decimales [Oeste,Sur,Este,Norte]', example: '-68.5,0.5,-58.5,10.2' },
+      { name: 'collections', description: 'Identificador oficial del producto satelital STAC', example: 'sentinel-1-grd' },
+      { name: 'datetime', description: 'Rango histórico ISO-8601 de 2 años', example: '2024-10-19T00:00:00Z/2026-10-19T23:59:59Z' },
+      { name: 'limit', description: 'Límite máximo de granulas o escenas a retornar por página', example: '100' }
     ]
   },
   {
     id: 'COPERNICUS_SENTINEL_HUB_PROCESS',
-    name: 'Sentinel Hub Process API (Copernicus CDSE Statistical & Custom Script Engine)',
+    name: 'Sentinel Hub Process API (Copernicus CDSE Custom Script Engine)',
     agency: 'ESA / Planet / Sinergise',
     category: 'SAR_RADAR',
     sensorMissions: ['Sentinel-1 SAR Backscatter', 'Sentinel-2 L2A Optical NDVI/NDRE'],
@@ -137,12 +140,14 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
       bboxString: '-68.5,0.5,-58.5,10.2',
     },
     authType: 'BEARER_TOKEN_OAUTH2',
-    description: 'API de procesamiento en tiempo real para generar ortofotos SAR calibradas en decibelios (gamma0 / sigma0) y máscaras de deforestación mediante scripts Evalscript.',
+    description: 'API de procesamiento en tiempo real mediante peticiones POST para generar ortofotos SAR calibradas en decibelios (gamma0 / sigma0) y máscaras de deforestación mediante scripts Evalscript.',
     payloadFormat: 'GEOTIFF',
-    sampleCurlCommand: 'curl -X POST "https://sh.dataspace.copernicus.eu/api/v1/process" -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" -d \'{"input":{"bounds":{"bbox":[-66.9,3.6,-66.6,3.9]}}}\'',
+    sampleCurlCommand: 'curl -X POST "https://sh.dataspace.copernicus.eu/api/v1/process" -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" -d \'{"input":{"bounds":{"bbox":[-68.5,0.5,-58.5,10.2]},"data":[{"type":"sentinel-1-grd"}]},"output":{"width":1024,"height":1024}}\'',
     queryParameters: [
-      { name: 'Authorization', description: 'Token de sesión OAuth2 obtenido en identity.dataspace.copernicus.eu', example: 'Bearer eyJhbGciOi...' },
-      { name: 'evalscript', description: 'Script JavaScript para cálculo de retrodispersión dB o NDVI', example: '//version=3\nfunction evaluatePixel(s){return [s.VV, s.VH];}' }
+      { name: 'Authorization', description: 'Token OAuth2 (Bearer) generado en identity.dataspace.copernicus.eu', example: 'Bearer eyJhbGciOi...' },
+      { name: 'Content-Type', description: 'Tipo de contenido de la petición POST', example: 'application/json' },
+      { name: 'bbox', description: 'Coordenadas del área de estudio [W, S, E, N]', example: '[-68.5, 0.5, -58.5, 10.2]' },
+      { name: 'evalscript', description: 'Script JavaScript para procesamiento analítico de píxeles', example: '//version=3\nfunction setup() { return { input: ["VV"], output: { bands: 1 } }; }\nfunction evaluatePixel(sample) { return [sample.VV * 2.5]; }' }
     ]
   },
   {
