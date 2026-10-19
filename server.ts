@@ -5,7 +5,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { PDFParse } from "pdf-parse";
-import { SatelliteAutomatedScheduler, getSupabaseServerClient } from "./server/satelliteScheduler";
+import { SatelliteAutomatedScheduler, getSupabaseServerClient, extractNasaFirmsApiKey, OFFICIAL_NASA_FIRMS_ENDPOINT, DEFAULT_NASA_FIRMS_API_KEY } from "./server/satelliteScheduler";
 import { aiModelCascadeManager } from "./server/aiModelManager";
 import { performZonePredictiveAndPerceptiveAnalysis } from "./server/zoneAnalyticsEngine";
 
@@ -678,11 +678,47 @@ DO UPDATE SET
     return res.json(scheduler.getStatus());
   });
 
-  // Manual Trigger on-demand for any satellite pass
+  // Manual Trigger on-demand for any satellite pass (admite apiKey opcional)
   app.post("/api/scheduler/trigger/:taskKey", async (req, res) => {
     const { taskKey } = req.params;
-    const result = await scheduler.executeTask(taskKey, true);
+    const rawKey = req.body?.apiKey || (req.query?.apiKey as string) || "";
+    const apiKey = extractNasaFirmsApiKey(rawKey);
+    if (apiKey) {
+      scheduler.setNasaApiKey(apiKey);
+    }
+    const result = await scheduler.executeTask(taskKey, true, apiKey || undefined);
     return res.json(result);
+  });
+
+  // Configuración y persistencia de MAP_KEY de NASA FIRMS en el scheduler
+  app.post("/api/scheduler/config/nasa-key", (req, res) => {
+    const rawKey = req.body?.apiKey || "";
+    const cleanKey = extractNasaFirmsApiKey(rawKey);
+    if (cleanKey) {
+      scheduler.setNasaApiKey(cleanKey);
+      return res.json({
+        success: true,
+        message: "MAP_KEY de NASA FIRMS configurada exitosamente.",
+        configured: true,
+        maskedKey: `${cleanKey.slice(0, 4)}...${cleanKey.slice(-4)}`
+      });
+    } else {
+      scheduler.setNasaApiKey("");
+      return res.json({
+        success: true,
+        message: "MAP_KEY de NASA FIRMS reiniciada a valor base.",
+        configured: false
+      });
+    }
+  });
+
+  app.get("/api/scheduler/config/nasa-key", (req, res) => {
+    const key = scheduler.getNasaApiKey();
+    return res.json({
+      configured: Boolean(key && key.length >= 8),
+      maskedKey: key && key.length >= 8 ? `${key.slice(0, 4)}...${key.slice(-4)}` : "",
+      endpointTemplate: OFFICIAL_NASA_FIRMS_ENDPOINT
+    });
   });
 
   // Toggle pause/resume
@@ -702,6 +738,68 @@ DO UPDATE SET
   // Get full Supabase Automation SQL Migration (PostGIS + pgvector + Triggers + pg_cron)
   app.get("/api/scheduler/sql-automation", (req, res) => {
     return res.json({ sql: scheduler.getAutomationSqlScript() });
+  });
+
+  // Purga estricta de todos los datos sintéticos de satélites en Supabase
+  app.post("/api/supabase/purge-satellite-synthetic", async (req, res) => {
+    try {
+      const result = await scheduler.purgeSyntheticSatelliteData();
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || "Error purgando datos sintéticos" });
+    }
+  });
+
+  // Estado y auditoría de tablas satelitales en Supabase
+  app.get("/api/supabase/satellite-status", async (req, res) => {
+    const client = getSupabaseServerClient();
+    if (!client) {
+      return res.json({
+        supabaseConnected: false,
+        tables: {
+          nasa_firms_hotspots: 0,
+          copernicus_sar_disturbances: 0,
+          s2_product_tile: 0,
+          s2_tile_bands: 0,
+          environmental_rag_documents_satellite: 0,
+          scientific_corpus_preserved: 0,
+          incident_reports_preserved: 0,
+        },
+        syntheticEliminated: true,
+      });
+    }
+
+    try {
+      const countFirms = await client.from("nasa_firms_hotspots").select("*", { count: "exact", head: true });
+      const countSar = await client.from("copernicus_sar_disturbances").select("*", { count: "exact", head: true });
+      const countS2 = await client.from("s2_product_tile").select("*", { count: "exact", head: true });
+      const countBands = await client.from("s2_tile_bands").select("*", { count: "exact", head: true });
+      const countRagSat = await client.from("environmental_rag_documents").select("*", { count: "exact", head: true }).in("doc_type", ["NASA_FIRMS", "SENTINEL_1_SAR", "SENTINEL_2_MSI", "HEAT_ANOMALY", "MINING_ALERT"]);
+      const countCorpus = await client.from("environmental_rag_documents").select("*", { count: "exact", head: true }).eq("doc_type", "SCIENTIFIC_CORPUS");
+      const countInc = await client.from("environmental_rag_documents").select("*", { count: "exact", head: true }).eq("doc_type", "INCIDENT_REPORT");
+
+      const firmsCount = countFirms.count || 0;
+      const sarCount = countSar.count || 0;
+      const s2Count = countS2.count || 0;
+      const ragSatCount = countRagSat.count || 0;
+
+      return res.json({
+        supabaseConnected: true,
+        tables: {
+          nasa_firms_hotspots: firmsCount,
+          copernicus_sar_disturbances: sarCount,
+          s2_product_tile: s2Count,
+          s2_tile_bands: countBands.count || 0,
+          environmental_rag_documents_satellite: ragSatCount,
+          scientific_corpus_preserved: countCorpus.count || 0,
+          incident_reports_preserved: countInc.count || 0,
+        },
+        syntheticEliminated: (firmsCount === 0 && sarCount === 0 && s2Count === 0 && ragSatCount === 0),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || "Error consultando estado satelital" });
+    }
   });
 
   // Supabase Live Diagnostic & Connection Status
@@ -817,15 +915,15 @@ DO UPDATE SET
         nasaFirms: {
           status: "CONNECTED",
           lastSync: new Date().toISOString(),
-          totalRecords: 48 + liveFirmsStore.length,
+          totalRecords: liveFirmsStore.length,
           intervalHours: 3,
           activeSatellites: ["VIIRS-NOAA20", "VIIRS-SNPP", "MODIS-AQUA", "MODIS-TERRA"],
-          endpointUrl: "https://firms.modaps.eosdis.nasa.gov/api/country/csv/[API_KEY]/VIIRS_NOAA20_NRT/VEN/1",
+          endpointUrl: OFFICIAL_NASA_FIRMS_ENDPOINT,
         },
         copernicusSar: {
           status: "CONNECTED",
           lastSync: new Date().toISOString(),
-          totalDisturbances: 19 + liveCopernicusStore.length,
+          totalDisturbances: liveCopernicusStore.length,
           missions: ["Sentinel-1 GRD (SAR dual pol VV+VH)", "Sentinel-2 MSI (L2A Optical)"],
           endpointUrl: "https://catalogue.dataspace.copernicus.eu/stac/search",
         },
@@ -834,7 +932,7 @@ DO UPDATE SET
           network: "Red Hidrológica Nacional / INAMEH",
           basin: "Cuenca Hidrográfica del Río Orinoco (Amazonas y Bolívar)",
           lastSync: new Date().toISOString(),
-          totalReadings: 36 + liveHydroTelemetryStore.length,
+          totalReadings: liveHydroTelemetryStore.length,
           activeStations: 5,
           intervalHours: 1,
           telemetryProtocols: ["GOES-DCS (401.5 MHz)", "Iridium SBD", "GPRS/Cellular"],
@@ -1145,47 +1243,26 @@ DO UPDATE SET
     }
   });
 
-  // NASA FIRMS Live Fetcher / Polling Trigger
+  // NASA FIRMS Live Fetcher / Polling Trigger (Datos REALES de NASA EOSDIS VIIRS NOAA-20)
   app.post("/api/ingestion/nasa-firms/fetch", async (req, res) => {
     try {
-      // Ingest live FIRMS thermal anomaly over Amazonas / Bolívar basin
-      const newId = `FIRMS-VEN-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-      const lat = 3.65 + Math.random() * 3.5;
-      const lng = -67.8 + Math.random() * 6.5;
-      const frp = Math.round((12 + Math.random() * 35) * 10) / 10;
-      const tempK = Math.round((330 + Math.random() * 35) * 10) / 10;
+      const rawKey = req.body?.apiKey || (req.query?.apiKey as string) || "";
+      const apiKey = extractNasaFirmsApiKey(rawKey) || scheduler.getNasaApiKey();
+      
+      if (!apiKey || apiKey.length < 8) {
+        return res.status(400).json({
+          success: false,
+          error: "Se requiere un MAP_KEY válido de NASA FIRMS (péguelo en el campo de texto o configure NASA_FIRMS_API_KEY).",
+          endpointFormat: OFFICIAL_NASA_FIRMS_ENDPOINT,
+          howToGet: "Obtenga su clave gratuita de NASA EOSDIS en https://firms.modaps.eosdis.nasa.gov/api/map_key/"
+        });
+      }
 
-      const hotspot = {
-        id: newId,
-        source: "NASA_FIRMS",
-        satellite: Math.random() > 0.5 ? "VIIRS-NOAA20" : "VIIRS-SNPP",
-        latitude: Math.round(lat * 1000) / 1000,
-        longitude: Math.round(lng * 1000) / 1000,
-        brightnessTempK: tempK,
-        frpMw: frp,
-        confidence: frp > 25 ? "high" : "nominal",
-        acqDate: new Date().toISOString().slice(0, 10),
-        acqTime: new Date().toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" }),
-        dayNight: "D",
-        subBasin: lat < 5.0 ? "Alto Orinoco / Río Ventuari" : "Cuenca del Río Caura / Caroní",
-        sectorName: `Sector Térmico VIIRS (Cuadrante ${Math.round(lat * 10)/10}°N, ${Math.round(lng * 10)/10}°W)`,
-        postgisGeomText: `POINT(${Math.round(lng * 1000)/1000} ${Math.round(lat * 1000)/1000})`,
-        embeddingGenerated: true,
-        embeddingDim: 768,
-      };
-
-      liveFirmsStore.unshift(hotspot);
-
-      return res.json({
-        success: true,
-        source: "NASA_FIRMS_VIIRS",
-        count: 1,
-        hotspot,
-        totalInStore: liveFirmsStore.length,
-        timestamp: new Date().toISOString(),
-      });
+      scheduler.setNasaApiKey(apiKey);
+      const result = await scheduler.executeTask("NASA_FIRMS", true, apiKey);
+      return res.json(result);
     } catch (error: any) {
-      return res.status(500).json({ error: error?.message || "Error fetching NASA FIRMS" });
+      return res.status(500).json({ success: false, error: error?.message || "Error consultando API de NASA FIRMS" });
     }
   });
 
@@ -1333,7 +1410,7 @@ DO UPDATE SET
         const polyWkt = `SRID=4326;POLYGON((${matchedTile.state === "Amazonas" ? -67.3 : -64.9} 4.0, ${matchedTile.state === "Amazonas" ? -66.3 : -63.9} 4.0, ${matchedTile.state === "Amazonas" ? -66.3 : -63.9} 5.0, ${matchedTile.state === "Amazonas" ? -67.3 : -64.9} 5.0, ${matchedTile.state === "Amazonas" ? -67.3 : -64.9} 4.0))`;
         const tileId = matchedTile.tileId || (matchedTile.state === "Amazonas" ? "T19PHC" : "T20PHD");
         
-        const { error: s2Err } = await supabase.from("s2_product_tile").insert({
+        const { error: s2Err } = await supabase.from("s2_product_tile").upsert({
           tile_id: tileId,
           datatake_id: `GS2_${matchedTile.productId || 'PROD_S2'}`,
           spacecraft_name: "S2A",
@@ -1341,7 +1418,7 @@ DO UPDATE SET
           processing_level: "L2A",
           cloud_pixel_pct: matchedTile.cloudPixelPct || 10.5,
           geom_footprint: polyWkt
-        });
+        }, { onConflict: "tile_id" });
 
         if (!s2Err) {
           supabaseSaved = true;

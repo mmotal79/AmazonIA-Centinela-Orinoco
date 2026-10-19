@@ -16,9 +16,9 @@ export interface SatelliteApiConnection {
     north: number;
     bboxString: string;
   };
-  authType: 'MAP_KEY_PARAM' | 'BEARER_TOKEN_OAUTH2' | 'BASIC_AUTH' | 'PUBLIC_NO_AUTH' | 'INTERNAL_PROXY';
+  authType: 'MAP_KEY_PARAM' | 'BEARER_TOKEN_OAUTH2' | 'BASIC_AUTH' | 'PUBLIC_NO_AUTH' | 'INTERNAL_PROXY' | 'PUBLIC_OGC';
   description: string;
-  payloadFormat: 'CSV' | 'GEOJSON' | 'JSON' | 'NETCDF' | 'GEOTIFF';
+  payloadFormat: 'CSV' | 'GEOJSON' | 'JSON' | 'NETCDF' | 'GEOTIFF' | 'PNG_WMS' | 'GEOJSON_STAC';
   sampleCurlCommand: string;
   queryParameters: {
     name: string;
@@ -38,26 +38,26 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'NASA Earthdata / LANCE FIRMS',
     category: 'THERMAL_INFRARED',
     sensorMissions: ['VIIRS (Suomi-NPP & NOAA-20)', 'MODIS (Terra & Aqua)'],
-    activeUrl: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-68.5,0.5,-58.5,10.2/1',
+    activeUrl: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1',
     baseUrlTemplate: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{SOURCE}/{WEST,SOUTH,EAST,NORTH}/{DAY_RANGE}',
     documentationUrl: 'https://firms.modaps.eosdis.nasa.gov/api/data_specs/',
     updateFrequency: 'Cada 3 horas (NRT - Near Real Time)',
     spatialResolution: '375 metros (I-Band 375m VIIRS)',
     amazonBoundingBox: {
-      west: -68.5,
-      south: 0.5,
-      east: -58.5,
-      north: 10.2,
-      bboxString: '-68.5,0.5,-58.5,10.2',
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
     },
     authType: 'MAP_KEY_PARAM',
     description: 'Ingesta continua de anomalías térmicas y focos de calor activos causados por hornos de fundición minera, deforestación por tala y quema y campamentos en la selva.',
     payloadFormat: 'CSV',
-    sampleCurlCommand: 'curl -X GET "https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-68.5,0.5,-58.5,10.2/1"',
+    sampleCurlCommand: 'curl -X GET "https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1"',
     queryParameters: [
       { name: 'MAP_KEY', description: 'Clave de acceso gratuita emitida por NASA Earthdata LANCE', example: '410a5c80fc9842ac862618aec22a0943' },
       { name: 'SOURCE', description: 'Sensor satelital (VIIRS_NOAA20_NRT, VIIRS_SNPP_NRT, MODIS_NRT)', example: 'VIIRS_NOAA20_NRT' },
-      { name: 'AREA_COORDINATES', description: 'Bounding Box geográfico [W,S,E,N] de la Amazonía venezolana y Guayana', example: '-68.5,0.5,-58.5,10.2' },
+      { name: 'AREA_COORDINATES', description: 'Bounding Box geográfico [W,S,E,N] de Venezuela y Cuenca del Orinoco', example: '-73.5,0.6,-59.8,12.2' },
       { name: 'DAY_RANGE', description: 'Número de días retrospectivos a consultar (1 a 10)', example: '1' }
     ]
   },

@@ -132,6 +132,9 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
       if (res.items && res.items.length > 0) {
         setFirmsList(res.items);
       }
+      if (!res.success && res.error) {
+        alert(res.error);
+      }
     } finally {
       setIsSyncingFirms(false);
     }

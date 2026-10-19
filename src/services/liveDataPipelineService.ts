@@ -680,7 +680,7 @@ export const LivePipelineService = {
         totalRecords: 48,
         intervalHours: 3,
         activeSatellites: ['VIIRS-NOAA20', 'VIIRS-SNPP', 'MODIS-AQUA', 'MODIS-TERRA'],
-        endpointUrl: 'https://firms.modaps.eosdis.nasa.gov/api/country/csv/[KEY]/VIIRS_NOAA20_NRT/VEN/1',
+        endpointUrl: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1',
       },
       copernicusSar: {
         status: 'CONNECTED',
@@ -706,44 +706,25 @@ export const LivePipelineService = {
   },
 
   /**
-   * Ejecuta la ingesta en vivo desde NASA FIRMS
+   * Ejecuta la ingesta en vivo desde NASA FIRMS con API Key real (VIIRS NOAA-20 NRT)
    */
-  async triggerNasaFirmsFetch(): Promise<{ success: boolean; count: number; items: NasaFirmsHotspot[] }> {
+  async triggerNasaFirmsFetch(apiKey?: string, days: number = 1): Promise<{ success: boolean; count: number; items?: NasaFirmsHotspot[]; message?: string; error?: string }> {
     try {
-      const res = await fetch('/api/ingestion/nasa-firms/fetch', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        return data;
-      }
-    } catch (e) {
-      console.warn('Fallback local NASA FIRMS');
+      const effectiveKey = (apiKey && apiKey.trim().length > 0)
+        ? apiKey.trim()
+        : (typeof window !== 'undefined' ? localStorage.getItem('nasa_firms_map_key') || '' : '');
+
+      const res = await fetch('/api/ingestion/nasa-firms/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: effectiveKey, days })
+      });
+      const data = await res.json();
+      return data;
+    } catch (e: any) {
+      console.warn('Error en NASA FIRMS fetch:', e);
+      return { success: false, count: 0, error: e?.message || 'Error comunicando con servicio de ingesta NASA FIRMS' };
     }
-
-    // Generar un nuevo punto simulado en vivo sobre el área
-    const newHotspot: NasaFirmsHotspot = {
-      id: `FIRMS-VEN-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      source: 'NASA_FIRMS',
-      satellite: 'VIIRS-NOAA20',
-      latitude: 4.120 + (Math.random() - 0.5) * 1.5,
-      longitude: -66.500 + (Math.random() - 0.5) * 1.8,
-      brightnessTempK: 345 + Math.random() * 25,
-      frpMw: 15 + Math.random() * 20,
-      confidence: 'high',
-      acqDate: new Date().toISOString().slice(0, 10),
-      acqTime: new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
-      dayNight: 'D',
-      subBasin: 'Río Ventuari / Alto Orinoco',
-      sectorName: 'Sector Ribereño Alto Ventuari (Detección VIIRS)',
-      postgisGeomText: `POINT(-66.500 4.120)`,
-      embeddingGenerated: true,
-      embeddingDim: 768
-    };
-
-    return {
-      success: true,
-      count: INITIAL_LIVE_FIRMS_HOTSPOTS.length + 1,
-      items: [newHotspot, ...INITIAL_LIVE_FIRMS_HOTSPOTS]
-    };
   },
 
   /**
@@ -1201,19 +1182,73 @@ export const LivePipelineService = {
   /**
    * Fuerza la ejecución manual e inmediata de una tarea de satélite programada
    */
-  async triggerScheduledTask(taskKey: string): Promise<{ success: boolean; message: string; record?: any }> {
+  async triggerScheduledTask(taskKey: string, apiKey?: string): Promise<{ success: boolean; message: string; record?: any; error?: string }> {
     try {
-      const res = await fetch(`/api/scheduler/trigger/${taskKey}`, { method: 'POST' });
+      const effectiveKey = (apiKey && apiKey.trim().length > 0)
+        ? apiKey.trim()
+        : (typeof window !== 'undefined' ? localStorage.getItem('nasa_firms_map_key') || '' : '');
+
+      const res = await fetch(`/api/scheduler/trigger/${taskKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: effectiveKey })
+      });
       if (res.ok) {
         return await res.json();
       }
-    } catch (e) {
-      console.warn('Fallback triggerScheduledTask');
+      const errData = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        message: errData.message || `Error ejecutando tarea ${taskKey}`,
+        error: errData.error
+      };
+    } catch (e: any) {
+      console.warn('Fallback triggerScheduledTask', e);
+      return {
+        success: false,
+        message: `Error ejecutando tarea ${taskKey}: ${e?.message || e}`
+      };
     }
-    return {
-      success: true,
-      message: `Tarea ${taskKey} disparada localmente. Evento generado e inyectado en Supabase vector corpus.`
-    };
+  },
+
+  /**
+   * Guarda y sincroniza la MAP_KEY de NASA FIRMS en backend y localStorage
+   */
+  async saveNasaFirmsApiKey(apiKey: string): Promise<{ success: boolean; message: string; configured: boolean; maskedKey?: string }> {
+    try {
+      if (typeof window !== 'undefined') {
+        if (apiKey && apiKey.trim().length > 0) {
+          localStorage.setItem('nasa_firms_map_key', apiKey.trim());
+        } else {
+          localStorage.removeItem('nasa_firms_map_key');
+        }
+      }
+      const res = await fetch('/api/scheduler/config/nasa-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey })
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Error guardando MAP_KEY', configured: false };
+    }
+  },
+
+  /**
+   * Obtiene la configuración activa de MAP_KEY de NASA FIRMS
+   */
+  async getNasaFirmsConfig(): Promise<{ configured: boolean; maskedKey: string; endpointTemplate: string }> {
+    try {
+      const res = await fetch('/api/scheduler/config/nasa-key');
+      return await res.json();
+    } catch {
+      const localKey = typeof window !== 'undefined' ? localStorage.getItem('nasa_firms_map_key') || '410a5c80fc9842ac862618aec22a0943' : '410a5c80fc9842ac862618aec22a0943';
+      return {
+        configured: Boolean(localKey && localKey.length >= 8),
+        maskedKey: localKey ? `${localKey.slice(0, 4)}...${localKey.slice(-4)}` : '',
+        endpointTemplate: 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1'
+      };
+    }
   },
 
   /**
@@ -1264,5 +1299,56 @@ export const LivePipelineService = {
       console.warn('Fallback getAutomationSql');
     }
     return SUPABASE_POSTGIS_PGVECTOR_SQL;
+  },
+
+  /**
+   * Ejecuta la purga de datos sintéticos satelitales en Supabase
+   */
+  async purgeSatelliteSyntheticData(): Promise<{
+    success: boolean;
+    recordsDeleted: {
+      nasa_firms_hotspots: number;
+      copernicus_sar_disturbances: number;
+      s2_product_tile: number;
+      s2_tile_bands: number;
+      environmental_rag_documents: number;
+      total: number;
+    };
+    preservedCounts: {
+      scientific_corpus: number;
+      incident_reports: number;
+    };
+    message: string;
+  }> {
+    const res = await fetch('/api/supabase/purge-satellite-synthetic', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al ejecutar purga en Supabase');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Obtiene la auditoría de registros de satélites en Supabase
+   */
+  async getSatelliteDatabaseStatus(): Promise<{
+    supabaseConnected: boolean;
+    tables: {
+      nasa_firms_hotspots: number;
+      copernicus_sar_disturbances: number;
+      s2_product_tile: number;
+      s2_tile_bands: number;
+      environmental_rag_documents_satellite: number;
+      scientific_corpus_preserved: number;
+      incident_reports_preserved: number;
+    };
+    syntheticEliminated: boolean;
+    timestamp: string;
+  }> {
+    const res = await fetch('/api/supabase/satellite-status');
+    if (!res.ok) {
+      throw new Error('Error al obtener estado satelital de Supabase');
+    }
+    return await res.json();
   }
 };

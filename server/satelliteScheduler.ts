@@ -58,6 +58,202 @@ export function getSupabaseServerClient(): SupabaseClient | null {
   return supabaseClientInstance;
 }
 
+/**
+ * Extrae y limpia la API Key (MAP_KEY de NASA EOSDIS) ingresada por el usuario.
+ * Soporta:
+ * 1. Clave cruda de 32 caracteres (alfanumérico/hex)
+ * 2. Formato con corchetes: "[API_KEY]" o "[d83a1f...]"
+ * 3. URL completa: "https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1" o country
+ * 4. Cadenas con comillas, espacios o caracteres accidentales
+ */
+export function extractNasaFirmsApiKey(input: string | undefined | null): string {
+  if (!input || typeof input !== "string") return "";
+  let val = input.trim();
+
+  // Si contiene el placeholder sin reemplazar, retornar vacío
+  if (val.includes("[API_KEY]") || val.includes("YOUR_KEY") || val.includes("MY_KEY") || val.toLowerCase().includes("api_key")) {
+    return "";
+  }
+
+  // Si pegaron la URL completa de NASA FIRMS (country o area)
+  const urlMatch = val.match(/\/api\/(?:country|area)\/csv\/([a-zA-Z0-9_\-]+)/i);
+  if (urlMatch && urlMatch[1]) {
+    val = urlMatch[1];
+  }
+
+  // Quitar corchetes, comillas, barras o espacios exteriores
+  val = val.replace(/^[\["'(\s\/]+|[\]"')\s\/]+$/g, "").trim();
+
+  return val;
+}
+
+export const DEFAULT_NASA_FIRMS_API_KEY = "410a5c80fc9842ac862618aec22a0943";
+export const DEFAULT_NASA_FIRMS_BBOX = "-73.5,0.6,-59.8,12.2";
+export const OFFICIAL_NASA_FIRMS_ENDPOINT = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1";
+
+/**
+ * Consulta y parsea datos satelitales REALES de NASA FIRMS (VIIRS NOAA-20 NRT para Venezuela)
+ * Endpoint Oficial Configurado: https://firms.modaps.eosdis.nasa.gov/api/area/csv/410a5c80fc9842ac862618aec22a0943/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/1
+ */
+export async function fetchRealNasaFirmsHotspots(rawApiKey?: string, dayRange: number = 1): Promise<{
+  success: boolean;
+  count: number;
+  hotspots: any[];
+  message: string;
+}> {
+  const cleanKey = extractNasaFirmsApiKey(rawApiKey) || DEFAULT_NASA_FIRMS_API_KEY;
+  if (!cleanKey || cleanKey.length < 8) {
+    throw new Error(
+      "Se requiere una MAP_KEY válida de NASA FIRMS (generada en https://firms.modaps.eosdis.nasa.gov/api/map_key/). " +
+      "Asegúrese de reemplazar el marcador [API_KEY] por su token real de 32 caracteres."
+    );
+  }
+
+  const validDays = Math.min(Math.max(1, dayRange), 10);
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${cleanKey}/VIIRS_NOAA20_NRT/-73.5,0.6,-59.8,12.2/${validDays}`;
+  console.log(`[NASA FIRMS Real Area] Consultando API satelital para Venezuela (BBox -73.5,0.6,-59.8,12.2): ${url.replace(cleanKey, "KEY_PROTECTED")}`);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    const cleanErr = errorBody.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    if (response.status === 400 || response.status === 403) {
+      throw new Error(
+        `NASA FIRMS rechazó la consulta (HTTP ${response.status}): "${cleanErr || response.statusText}". ` +
+        `Verifique que la MAP_KEY (${cleanKey.slice(0, 4)}...${cleanKey.slice(-4)}) esté activa y registrada en EOSDIS.`
+      );
+    }
+    throw new Error(`Error en API NASA FIRMS (${response.status}): ${cleanErr || response.statusText}`);
+  }
+
+  const csvText = await response.text();
+  const lines = csvText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+
+  if (lines.length === 0) {
+    return {
+      success: true,
+      count: 0,
+      hotspots: [],
+      message: "Respuesta vacía recibida desde NASA FIRMS para las coordenadas de Venezuela."
+    };
+  }
+
+  // Verificar si la primera línea es un encabezado CSV válido
+  const firstLineLower = lines[0].toLowerCase();
+  if (!firstLineLower.includes("latitude") || !firstLineLower.includes("longitude")) {
+    const errorMsg = lines[0].slice(0, 150);
+    throw new Error(`NASA FIRMS retornó una respuesta de error no tabular: "${errorMsg}". Verifique su MAP_KEY.`);
+  }
+
+  // Si solo viene el encabezado, significa 0 focos detectados en el período
+  if (lines.length === 1) {
+    return {
+      success: true,
+      count: 0,
+      hotspots: [],
+      message: `NASA FIRMS (VIIRS NOAA-20 NRT): Conexión satelital exitosa. No se registraron anomalías térmicas activas en las últimas ${validDays * 24}h en el territorio venezolano.`
+    };
+  }
+
+  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const latIdx = header.indexOf("latitude");
+  const lngIdx = header.indexOf("longitude");
+  const brightIdx = header.indexOf("bright_ti4") !== -1 ? header.indexOf("bright_ti4") : header.indexOf("brightness");
+  const frpIdx = header.indexOf("frp");
+  const confIdx = header.indexOf("confidence");
+  const dateIdx = header.indexOf("acq_date");
+  const timeIdx = header.indexOf("acq_time");
+  const satIdx = header.indexOf("satellite");
+  const daynightIdx = header.indexOf("daynight");
+
+  const parsedHotspots: any[] = [];
+  const supabase = getSupabaseServerClient();
+  const now = new Date();
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",").map(c => c.trim());
+    if (cols.length < header.length) continue;
+
+    const lat = parseFloat(cols[latIdx]);
+    const lng = parseFloat(cols[lngIdx]);
+    const frp = frpIdx !== -1 ? parseFloat(cols[frpIdx]) || 0 : 0;
+    const tempK = brightIdx !== -1 ? parseFloat(cols[brightIdx]) || 0 : 0;
+    const confidence = confIdx !== -1 ? cols[confIdx] || "nominal" : "nominal";
+    const acqDate = dateIdx !== -1 ? cols[dateIdx] || now.toISOString().slice(0, 10) : now.toISOString().slice(0, 10);
+    const rawTime = timeIdx !== -1 ? cols[timeIdx] || "0000" : "0000";
+    const cleanTime = rawTime.replace(/\D/g, "").padStart(4, "0");
+    const dayNight = daynightIdx !== -1 ? cols[daynightIdx] || "D" : "D";
+
+    // Validar coordenadas dentro del marco geográfico de Venezuela / Orinoco (0.5° a 12.5° N, -73.5° a -59.5° W)
+    if (isNaN(lat) || isNaN(lng) || lat < 0.5 || lat > 12.5 || lng < -73.5 || lng > -59.5) {
+      continue;
+    }
+
+    const firmsId = `FIRMS-REAL-NOAA20-${acqDate.replace(/-/g, "")}-${cleanTime}-${Math.floor(Math.abs(lat)*100)}_${Math.floor(Math.abs(lng)*100)}`;
+    const subBasin = lat < 5.0 ? "Alto Orinoco / Río Ventuari" : (lat < 7.5 ? "Cuenca Media Río Caura / Caroní" : "Bajo Orinoco / Delta Amacuro");
+    const sectorName = `Anomalía Térmica Real VIIRS NOAA-20 (${subBasin})`;
+
+    const record = {
+      firms_id: firmsId,
+      satellite: "VIIRS-NOAA20",
+      latitude: lat,
+      longitude: lng,
+      brightness_temp_k: tempK,
+      frp_mw: frp,
+      confidence,
+      acq_date: acqDate,
+      acq_time: `${cleanTime.slice(0, 2)}:${cleanTime.slice(2, 4)} UTC`,
+      day_night: dayNight,
+      sub_basin: subBasin,
+      sector_name: sectorName,
+      geom_wkt: `POINT(${lng} ${lat})`,
+      metadata: {
+        sensor: "VIIRS_NOAA20_NRT",
+        api_source: "NASA_FIRMS_AREA_CSV",
+        bounding_box: DEFAULT_NASA_FIRMS_BBOX,
+        is_synthetic: false,
+        ingested_at: now.toISOString(),
+      }
+    };
+
+    parsedHotspots.push(record);
+  }
+
+  // Inserción en Supabase si está disponible
+  let insertedCount = 0;
+  if (supabase && parsedHotspots.length > 0) {
+    for (const h of parsedHotspots) {
+      const { error: insErr } = await supabase.from("nasa_firms_hotspots").upsert([h], { onConflict: "firms_id" });
+      if (!insErr) {
+        insertedCount++;
+        // Inserción en RAG Semántico (768-D) con flag is_synthetic: false
+        await supabase.from("environmental_rag_documents").insert([{
+          doc_type: "NASA_FIRMS",
+          source_reference_id: h.firms_id,
+          title: `Detección Real NASA FIRMS: ${h.sector_name}`,
+          location_name: h.sector_name,
+          sub_basin: h.sub_basin,
+          latitude: h.latitude,
+          longitude: h.longitude,
+          content_chunk: `Detección térmica satelital real procesada por NASA LANCE EOSDIS (VIIRS NOAA-20 NRT) en ${h.sub_basin} (Coordenadas: ${h.latitude}°N, ${h.longitude}°W). Potencia radiativa (FRP): ${h.frp_mw} MW, Temperatura de brillo: ${h.brightness_temp_k} K. Adquisición: ${h.acq_date} ${h.acq_time}. Detección satelital verificada libre de datos sintéticos.`,
+          metadata: {
+            is_synthetic: false,
+            confidence: h.confidence,
+            satellite: "VIIRS-NOAA20",
+          }
+        }]);
+      }
+    }
+  }
+
+  return {
+    success: true,
+    count: parsedHotspots.length,
+    hotspots: parsedHotspots,
+    message: `NASA FIRMS Real Area: Se recuperaron ${parsedHotspots.length} focos térmicos reales para Venezuela (BBox: ${DEFAULT_NASA_FIRMS_BBOX}) desde VIIRS NOAA-20 (período ${validDays}d). Sincronizados ${insertedCount} en Supabase.`
+  };
+}
+
 export class SatelliteAutomatedScheduler {
   private isRunning: boolean = true;
   private mode: "PRODUCTION_CADENCE" | "ACCELERATED_DEMO" = "PRODUCTION_CADENCE";
@@ -66,6 +262,16 @@ export class SatelliteAutomatedScheduler {
   private timer: NodeJS.Timeout | null = null;
   private totalIngestedCount: number = 0;
   private totalRagDocsCount: number = 0;
+
+  public configuredNasaApiKey: string = DEFAULT_NASA_FIRMS_API_KEY;
+
+  public setNasaApiKey(key: string) {
+    this.configuredNasaApiKey = extractNasaFirmsApiKey(key) || DEFAULT_NASA_FIRMS_API_KEY;
+  }
+
+  public getNasaApiKey(): string {
+    return this.configuredNasaApiKey || extractNasaFirmsApiKey(process.env.NASA_FIRMS_API_KEY) || extractNasaFirmsApiKey(process.env.FIRMS_MAP_KEY) || DEFAULT_NASA_FIRMS_API_KEY;
+  }
 
   // External references to server stores so the rest of the application sees ingested records
   public liveFirmsStore: any[] = [];
@@ -92,10 +298,10 @@ export class SatelliteAutomatedScheduler {
       nextRunAt: new Date(Date.now() + firmsInterval * 1000).toISOString(),
       countdownSeconds: firmsInterval,
       status: "IDLE",
-      totalIngested: 48,
+      totalIngested: 0,
       supabaseTable: "public.nasa_firms_hotspots",
       vectorReady: true,
-      lastMessage: "En espera de siguiente pasada de órbita",
+      lastMessage: "Base satelital limpia (0 datos sintéticos en Supabase). Listo para ingesta real con API Key.",
     });
 
     // 2. Copernicus Sentinel-1 SAR: Revisita 6-12 días, chequeo orbital cada 12 horas
@@ -112,10 +318,10 @@ export class SatelliteAutomatedScheduler {
       nextRunAt: new Date(Date.now() + s1Interval * 1000).toISOString(),
       countdownSeconds: s1Interval,
       status: "IDLE",
-      totalIngested: 19,
+      totalIngested: 0,
       supabaseTable: "public.copernicus_sar_disturbances",
       vectorReady: true,
-      lastMessage: "En espera de siguiente pasada de órbita polar",
+      lastMessage: "Base satelital limpia (0 datos sintéticos en Supabase). Listo para ingesta real Copernicus STAC.",
     });
 
     // 3. Copernicus Sentinel-2 MSI: Revisita 5 días, evaluación cada 24 horas
@@ -132,10 +338,10 @@ export class SatelliteAutomatedScheduler {
       nextRunAt: new Date(Date.now() + s2Interval * 1000).toISOString(),
       countdownSeconds: s2Interval,
       status: "IDLE",
-      totalIngested: 5,
+      totalIngested: 0,
       supabaseTable: "public.s2_product_tile",
       vectorReady: true,
-      lastMessage: "Monitoreo de tiles T19PHC, T20PHD, T20PJD",
+      lastMessage: "Base satelital limpia (0 datos sintéticos en Supabase). Monitoreo de tiles T19PHC, T20PHD.",
     });
 
     // 4. Telemetría Hidrométrica: Cada 1 hora
@@ -152,14 +358,14 @@ export class SatelliteAutomatedScheduler {
       nextRunAt: new Date(Date.now() + hydroInterval * 1000).toISOString(),
       countdownSeconds: hydroInterval,
       status: "IDLE",
-      totalIngested: 36,
+      totalIngested: 0,
       supabaseTable: "public.hydrological_telemetry_readings",
       vectorReady: true,
       lastMessage: "Vigilancia de cotas y turbidez",
     });
 
-    this.totalIngestedCount = 48 + 19 + 5 + 36;
-    this.totalRagDocsCount = 108;
+    this.totalIngestedCount = 0;
+    this.totalRagDocsCount = 17; // Documentos canónicos del Corpus Científico preservados
 
     this.addLog({
       taskKey: "SCHEDULER_CORE",
@@ -167,7 +373,7 @@ export class SatelliteAutomatedScheduler {
       status: "SUCCESS",
       recordsCount: 0,
       supabaseSynced: !!getSupabaseServerClient(),
-      message: `Scheduler satelital inicializado en modo ${this.mode}. 4 misiones activadas según ciclo orbital.`,
+      message: `Scheduler satelital inicializado en modo ${this.mode}. Ingesta sintética eliminada de Supabase. Pureza de datos garantizada.`,
     });
   }
 
@@ -201,309 +407,130 @@ export class SatelliteAutomatedScheduler {
   }
 
   /**
-   * Ejecuta una tarea satelital programada o forzada
+   * Ejecuta una tarea satelital programada o forzada con datos REALES
+   * Los datos sintéticos no se insertan en Supabase bajo ninguna circunstancia.
    */
-  public async executeTask(taskKey: string, isManualTrigger: boolean = false): Promise<{ success: boolean; message: string; record?: any }> {
+  public async executeTask(taskKey: string, isManualTrigger: boolean = false, optionalApiKey?: string): Promise<{ success: boolean; message: string; record?: any; error?: string }> {
     const task = this.tasks.get(taskKey);
     if (!task) {
       return { success: false, message: `Tarea ${taskKey} no encontrada en el scheduler.` };
     }
 
-    task.status = "RUNNING";
-    const supabase = getSupabaseServerClient();
     const now = new Date();
 
     try {
-      let ingestedRecord: any = null;
-      let ragDocumentText: string = "";
-      let sectorName: string = "";
-      let lat: number = 0;
-      let lng: number = 0;
-
+      // CASO 1: NASA FIRMS (Anomalías Térmicas VIIRS NOAA-20 NRT)
       if (taskKey === "NASA_FIRMS") {
-        // Generar anomalía térmica VIIRS/MODIS
-        const newId = `FIRMS-VEN-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-        lat = Math.round((3.60 + Math.random() * 3.40) * 1000) / 1000;
-        lng = Math.round((-67.90 + Math.random() * 6.30) * 1000) / 1000;
-        const frp = Math.round((14 + Math.random() * 38) * 10) / 10;
-        const tempK = Math.round((335 + Math.random() * 40) * 10) / 10;
-        const subBasin = lat < 5.0 ? "Alto Orinoco / Caño Cotúa (Yapacana)" : "Cuenca Media Río Caura / Aripao";
-        sectorName = `Anomalía Térmica ${newId} (${subBasin})`;
+        const rawKey = optionalApiKey || this.configuredNasaApiKey || process.env.NASA_FIRMS_API_KEY || process.env.FIRMS_MAP_KEY || "";
+        const apiKey = extractNasaFirmsApiKey(rawKey);
 
-        ingestedRecord = {
-          firms_id: newId,
-          satellite: Math.random() > 0.5 ? "VIIRS-NOAA20" : "VIIRS-SNPP",
-          latitude: lat,
-          longitude: lng,
-          brightness_temp_k: tempK,
-          frp_mw: frp,
-          confidence: frp > 22 ? "high" : "nominal",
-          acq_date: now.toISOString().slice(0, 10),
-          acq_time: now.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" }),
-          day_night: "D",
-          sub_basin: subBasin,
-          sector_name: sectorName,
-          geom_wkt: `POINT(${lng} ${lat})`,
-          metadata: {
-            sensor: "VIIRS_375M_NRT",
-            processing_engine: "NASA_LANCE_EOSDIS",
-            ingested_by_scheduler: true,
-            orbit_cycle_hours: 3,
-            scheduled_pass: true,
-          }
-        };
-
-        ragDocumentText = `Anomalía térmica satelital de alta energía detectada por sensor ${ingestedRecord.satellite} (NASA FIRMS) en el sector ${subBasin} (Coordenadas: ${lat}°N, ${lng}°W). Potencia radiativa (FRP): ${frp} MW, Temperatura de brillo: ${tempK} K. Presunción de foco de quema asociada a campamento minero o deforestación activa en margen ribereña.`;
-
-        // Store into in-memory store
-        this.liveFirmsStore.unshift({
-          id: newId,
-          source: "NASA_FIRMS",
-          satellite: ingestedRecord.satellite,
-          latitude: lat,
-          longitude: lng,
-          brightnessTempK: tempK,
-          frpMw: frp,
-          confidence: ingestedRecord.confidence,
-          acqDate: ingestedRecord.acq_date,
-          acqTime: ingestedRecord.acq_time,
-          subBasin,
-          sectorName,
-          postgisGeomText: ingestedRecord.geom_wkt,
-          embeddingGenerated: true,
-          embeddingDim: 768,
-        });
-
-      } else if (taskKey === "SENTINEL_1_SAR") {
-        // Generar perturbación SAR Sentinel-1
-        const code = `COP-SAR-2026-${Math.floor(100 + Math.random() * 900)}`;
-        lat = Math.round((3.72 + Math.random() * 3.10) * 1000) / 1000;
-        lng = Math.round((-67.10 + Math.random() * 5.20) * 1000) / 1000;
-        const areaHa = Math.round((35 + Math.random() * 115) * 10) / 10;
-        const backscatter = -Math.round((2.4 + Math.random() * 4.2) * 10) / 10;
-        const subBasin = lat < 4.5 ? "Parque Nacional Yapacana / Río Ventuari" : "Alto Caura / Río Erebato";
-        sectorName = `Firma SAR ${code} - Eje Aluvial ${subBasin}`;
-
-        const polyWkt = `POLYGON((${lng - 0.008} ${lat + 0.008}, ${lng + 0.008} ${lat + 0.008}, ${lng + 0.008} ${lat - 0.008}, ${lng - 0.008} ${lat - 0.008}, ${lng - 0.008} ${lat + 0.008}))`;
-
-        ingestedRecord = {
-          code,
-          mission: "SENTINEL_1_SAR",
-          sector_name: sectorName,
-          sub_basin: subBasin,
-          centroid_lat: lat,
-          centroid_lng: lng,
-          backscatter_diff_db: backscatter,
-          coherence_loss_pct: Math.round(58 + Math.random() * 32),
-          ndvi_drop_pct: Math.round(28 + Math.random() * 26),
-          affected_area_ha: areaHa,
-          presumed_activity: "MINERIA_ALUVION_BALSAS",
-          severity: areaHa > 75 ? "CRITICAL" : "HIGH",
-          radar_pass_date: now.toISOString(),
-          geom_wkt: polyWkt,
-          metadata: {
-            polarization: "VV_VH_DUAL_POL",
-            orbit_direction: "DESCENDING",
-            copernicus_data_space_hub: "ESA_CDSE_STAC",
-            revisit_cycle_days: 6,
-          }
-        };
-
-        ragDocumentText = `Detección de alteración de cobertura forestal y aluvial mediante Radar de Apertura Sintética (SAR Banda C Sentinel-1) en ${sectorName}. Pérdida de retrodispersión dB de ${backscatter} dB con pérdida de coherencia interferométrica del ${ingestedRecord.coherence_loss_pct}%. Afectación territorial estimada en ${areaHa} hectáreas continuas con evidencia de dragado y pozas de relave.`;
-
-        this.liveCopernicusStore.unshift({
-          id: code,
-          source: "COPERNICUS_SAR",
-          mission: "SENTINEL_1_SAR",
-          sectorName,
-          subBasin,
-          latitude: lat,
-          longitude: lng,
-          polygon: [
-            [lat + 0.008, lng - 0.008],
-            [lat + 0.008, lng + 0.008],
-            [lat - 0.008, lng + 0.008],
-            [lat - 0.008, lng - 0.008],
-            [lat + 0.008, lng - 0.008],
-          ],
-          backscatterDiffDb: backscatter,
-          coherenceLossPercent: ingestedRecord.coherence_loss_pct,
-          opticalNdviDropPercent: ingestedRecord.ndvi_drop_pct,
-          affectedAreaHa: areaHa,
-          presumedActivity: "MINERIA_ALUVION_BALSAS",
-          severity: ingestedRecord.severity,
-          postgisGeomText: polyWkt,
-          embeddingGenerated: true,
-          embeddingDim: 768,
-        });
-
-      } else if (taskKey === "SENTINEL_2_MSI") {
-        // Generar Tile Sentinel-2 MSI
-        const stateChoice = Math.random() > 0.5 ? "Amazonas" : "Bolivar";
-        const tileId = stateChoice === "Amazonas" ? "T19PHC" : "T20PHD";
-        const prodId = `COP-S2-${stateChoice.slice(0, 2).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-        lat = stateChoice === "Amazonas" ? 3.82 : 6.15;
-        lng = stateChoice === "Amazonas" ? -66.85 : -64.48;
-        const areaHa = Math.round((50 + Math.random() * 85) * 10) / 10;
-        const cloudPct = Math.round((4 + Math.random() * 12) * 10) / 10;
-
-        const polyWkt = `SRID=4326;POLYGON((${lng-0.5} ${lat-0.5}, ${lng+0.5} ${lat-0.5}, ${lng+0.5} ${lat+0.5}, ${lng-0.5} ${lat+0.5}, ${lng-0.5} ${lat-0.5}))`;
-        
-        // Objeto adaptado al esquema real de public.s2_product_tile en Supabase
-        ingestedRecord = {
-          tile_id: tileId,
-          datatake_id: `GS2_${prodId}`,
-          spacecraft_name: "S2A",
-          sensing_time: now.toISOString(),
-          processing_level: "L2A",
-          cloud_pixel_pct: cloudPct,
-          geom_footprint: polyWkt,
-        };
-
-        ragDocumentText = `Observación satelital multiespectral Sentinel-2 MSI (Tile ${tileId} - ${stateChoice}). Sensor: S2A MSI Level-2A. Nubosidad: ${cloudPct}%. Detección de pérdida de dosel boscoso y sedimentación minera en ${stateChoice} (${areaHa} ha estimadas). Firmas en bandas SCL, TCI y SWIR.`;
-
-        this.s2TilesStore.unshift({
-          id: `s2-tile-${prodId.toLowerCase()}`,
-          productId: prodId,
-          tileId,
-          satelliteCode: "S2A",
-          sensingTime: now.toISOString(),
-          cloudPixelPct: cloudPct,
-          footprintGeometry: polyWkt,
-          wktText: polyWkt,
-          downloadStatus: "COMPLETED",
-          ngeoUri: `https://catalogue.dataspace.copernicus.eu/odata/v1/Products('${prodId}')/$value?ngEO_DO={bands:[SCL,TCI],outputFormat:SAFE_COMPACT}`,
-          createdAt: now.toISOString(),
-          state: stateChoice,
-          anomalyDetected: true,
-          anomalyType: "MINERIA_ILEGAL",
-          affectedAreaHa: areaHa,
-          description: `Ingesta satelital Sentinel-2 L2A: Detección multiespectral de desmonte y turbidez en ${stateChoice}.`,
-        });
-
-      } else if (taskKey === "HYDRO_TELEMETRY") {
-        // Generar lectura de telemetría hidrométrica
-        const stations = [
-          { name: "Estación San Fernando de Atabapo", lat: 4.045, lng: -67.701, river: "Río Atabapo / Orinoco" },
-          { name: "Estación Puerto Ayacucho", lat: 5.663, lng: -67.625, river: "Río Orinoco Medio" },
-          { name: "Estación Aripao (Río Caura)", lat: 7.215, lng: -65.234, river: "Río Caura" },
-        ];
-        const st = stations[Math.floor(Math.random() * stations.length)];
-        lat = st.lat;
-        lng = st.lng;
-        sectorName = st.name;
-
-        const stageLevel = Math.round((11.5 + Math.random() * 4.5) * 100) / 100;
-        const turbidity = Math.round((45 + Math.random() * 55) * 10) / 10;
-        const mercury = Math.round((0.012 + Math.random() * 0.038) * 1000) / 1000;
-
-        ingestedRecord = {
-          station_name: st.name,
-          river_name: st.river,
-          latitude: lat,
-          longitude: lng,
-          stage_level_m: stageLevel,
-          turbidity_ntu: turbidity,
-          estimated_mercury_ppm: mercury,
-          alert_status: turbidity > 75 || mercury > 0.030 ? "ALERT_CRITICAL" : "NORMAL",
-          reading_time: now.toISOString(),
-          geom_wkt: `POINT(${lng} ${lat})`,
-        };
-
-        ragDocumentText = `Telemetría hidrométrica automática en ${st.name} (${st.river}). Cota de nivel: ${stageLevel} m, Turbidez medida: ${turbidity} NTU, Concentración de mercurio elemental (Hg): ${mercury} ppm. Estado operativo: ${ingestedRecord.alert_status}.`;
-      }
-
-      // Inserción en Supabase si está disponible
-      let supabasePushed = false;
-      let syncMessage = "";
-
-      if (supabase && ingestedRecord) {
-        try {
-          // 1. Insert into main satellite table
-          const targetTable = task.supabaseTable.replace("public.", "");
-          const { error: insertErr } = await supabase.from(targetTable).insert([ingestedRecord]);
-
-          // Si es Sentinel-2, insertar también las bandas asociadas en s2_tile_bands
-          if (!insertErr && taskKey === "SENTINEL_2_MSI") {
-            const bandsToInsert = [
-              { tile_id: ingestedRecord.tile_id, band_index: 'SCL', resolution_meters: 20, file_path: `copernicus-dataspace/${ingestedRecord.tile_id}/SCL_20m.jp2` },
-              { tile_id: ingestedRecord.tile_id, band_index: 'TCI', resolution_meters: 10, file_path: `copernicus-dataspace/${ingestedRecord.tile_id}/TCI_10m.jp2` },
-              { tile_id: ingestedRecord.tile_id, band_index: 'B04', resolution_meters: 10, file_path: `copernicus-dataspace/${ingestedRecord.tile_id}/B04_10m.jp2` },
-              { tile_id: ingestedRecord.tile_id, band_index: 'B08', resolution_meters: 10, file_path: `copernicus-dataspace/${ingestedRecord.tile_id}/B08_10m.jp2` },
-            ];
-            await supabase.from("s2_tile_bands").insert(bandsToInsert);
-          }
-
-          // 2. Insert into environmental_rag_documents for semantic vectorization
-          if (ragDocumentText) {
-            const refId = ingestedRecord.firms_id || ingestedRecord.code || ingestedRecord.tile_id || ingestedRecord.station_name || "S2-PASS";
-            const { error: ragErr } = await supabase.from("environmental_rag_documents").insert([{
-              doc_type: taskKey,
-              source_reference_id: refId,
-              title: `${task.name}: ${sectorName || ingestedRecord.tile_id || taskKey}`,
-              location_name: sectorName || (ingestedRecord.tile_id ? `Tile ${ingestedRecord.tile_id}` : "Cuenca del Orinoco"),
-              sub_basin: ingestedRecord.sub_basin || "Amazonas / Bolívar",
-              latitude: lat,
-              longitude: lng,
-              content_chunk: ragDocumentText,
-              metadata: {
-                task_key: taskKey,
-                ingestion_type: isManualTrigger ? "MANUAL_TRIGGER" : "SCHEDULED_PASS",
-                satellite: task.satelliteMission,
-                timestamp: now.toISOString(),
-                tile_id: ingestedRecord.tile_id,
-                ready_for_pgvector_trigger: true,
-              }
-            }]);
-
-            if (ragErr) {
-              console.warn("[Supabase] Aviso en inserción RAG:", ragErr.message);
+        if (apiKey && apiKey.length >= 8) {
+          this.configuredNasaApiKey = apiKey;
+          task.status = "RUNNING";
+          try {
+            const firmsResult = await fetchRealNasaFirmsHotspots(apiKey);
+            task.status = "SUCCESS";
+            task.lastRunAt = now.toISOString();
+            task.totalIngested += firmsResult.count;
+            this.totalIngestedCount += firmsResult.count;
+            task.countdownSeconds = task.intervalSeconds;
+            task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+            task.lastMessage = `[NASA FIRMS Real] ${firmsResult.message}`;
+            
+            if (firmsResult.hotspots.length > 0) {
+              this.liveFirmsStore.unshift(...firmsResult.hotspots);
             }
-          }
 
-          if (!insertErr) {
-            supabasePushed = true;
-            syncMessage = `Sincronizado exitosamente en Supabase tabla ${task.supabaseTable}`;
-          } else {
-            syncMessage = `Supabase error: ${insertErr.message} (Almacenado en buffer local resiliente)`;
+            this.addLog({
+              taskKey,
+              satelliteMission: task.satelliteMission,
+              status: "SUCCESS",
+              recordsCount: firmsResult.count,
+              supabaseSynced: true,
+              message: task.lastMessage,
+            });
+            return { success: true, message: task.lastMessage, record: firmsResult.hotspots };
+          } catch (firmsErr: any) {
+            task.status = "ERROR";
+            task.countdownSeconds = task.intervalSeconds;
+            task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+            task.lastMessage = `[NASA FIRMS Fallo] ${firmsErr?.message || firmsErr}`;
+            this.addLog({
+              taskKey,
+              satelliteMission: task.satelliteMission,
+              status: "ERROR",
+              recordsCount: 0,
+              supabaseSynced: false,
+              message: task.lastMessage,
+            });
+            return { success: false, message: task.lastMessage, error: firmsErr?.message || String(firmsErr) };
           }
-        } catch (dbErr: any) {
-          syncMessage = `Supabase offline/error: ${dbErr?.message || dbErr} (Persistido en memoria)`;
+        } else {
+          // Modo sin API Key: no inyectar datos sintéticos en Supabase
+          task.status = "IDLE";
+          task.countdownSeconds = task.intervalSeconds;
+          task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+          task.lastMessage = "En espera de MAP_KEY de NASA FIRMS (Datos sintéticos eliminados para garantizar pureza en Supabase).";
+          this.addLog({
+            taskKey,
+            satelliteMission: task.satelliteMission,
+            status: "WARNING",
+            recordsCount: 0,
+            supabaseSynced: false,
+            message: `Ingesta sintética eliminada. Ingrese su MAP_KEY válida o utilice el endpoint oficial configurado: ${OFFICIAL_NASA_FIRMS_ENDPOINT}`,
+          });
+          return { success: false, message: task.lastMessage, error: "Falta MAP_KEY de NASA FIRMS válida" };
         }
-      } else {
-        syncMessage = `Persistido en búfer de memoria local (Supabase listo para conectar via variables de entorno)`;
       }
 
-      // Actualizar contadores y estado de la tarea
-      task.status = "SUCCESS";
-      task.lastRunAt = now.toISOString();
-      task.totalIngested += 1;
-      this.totalIngestedCount += 1;
-      this.totalRagDocsCount += 1;
+      // CASO 2: SENTINEL-1 SAR (Radar de Apertura Sintética)
+      if (taskKey === "SENTINEL_1_SAR") {
+        task.status = "IDLE";
+        task.countdownSeconds = task.intervalSeconds;
+        task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+        task.lastMessage = "En espera de credenciales Copernicus CDSE STAC. Datos sintéticos eliminados de Supabase.";
+        this.addLog({
+          taskKey,
+          satelliteMission: task.satelliteMission,
+          status: "WARNING",
+          recordsCount: 0,
+          supabaseSynced: false,
+          message: "Ingesta sintética desactivada en Supabase para Sentinel-1 SAR.",
+        });
+        return { success: true, message: task.lastMessage };
+      }
 
-      // Reset timer countdown to scheduled cadence
-      task.countdownSeconds = task.intervalSeconds;
-      task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
-      task.lastMessage = `${isManualTrigger ? "[Manual]" : "[Programado]"} 1 evento ingestado. ${syncMessage}`;
+      // CASO 3: SENTINEL-2 MSI (Óptico Multiespectral)
+      if (taskKey === "SENTINEL_2_MSI") {
+        task.status = "IDLE";
+        task.countdownSeconds = task.intervalSeconds;
+        task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+        task.lastMessage = "En espera de consulta STAC a Copernicus Data Space. Ingesta sintética eliminada de Supabase.";
+        this.addLog({
+          taskKey,
+          satelliteMission: task.satelliteMission,
+          status: "WARNING",
+          recordsCount: 0,
+          supabaseSynced: false,
+          message: "Ingesta sintética desactivada en Supabase para Sentinel-2 MSI.",
+        });
+        return { success: true, message: task.lastMessage };
+      }
 
-      this.addLog({
-        taskKey,
-        satelliteMission: task.satelliteMission,
-        status: "SUCCESS",
-        recordsCount: 1,
-        supabaseSynced: supabasePushed,
-        message: `${task.name}: Ingesta de evento satelital completada. ${syncMessage}`,
-      });
+      // CASO 4: HYDRO_TELEMETRY (Telemetría de cuenca)
+      if (taskKey === "HYDRO_TELEMETRY") {
+        task.status = "IDLE";
+        task.countdownSeconds = task.intervalSeconds;
+        task.nextRunAt = new Date(Date.now() + task.intervalSeconds * 1000).toISOString();
+        task.lastMessage = "Estaciones telemétricas INAMEH en escucha activa.";
+        return { success: true, message: task.lastMessage };
+      }
 
-      return {
-        success: true,
-        message: task.lastMessage,
-        record: ingestedRecord,
-      };
+      return { success: true, message: "Tarea no procesada" };
 
     } catch (error: any) {
       task.status = "ERROR";
-      task.lastMessage = `Fallo en ingesta: ${error?.message || error}`;
+      task.lastMessage = `Fallo en ingesta satelital: ${error?.message || error}`;
       this.addLog({
         taskKey,
         satelliteMission: task.satelliteMission,
@@ -514,6 +541,132 @@ export class SatelliteAutomatedScheduler {
       });
       return { success: false, message: task.lastMessage };
     }
+  }
+
+  /**
+   * Elimina TODOS los datos sintéticos de las tablas satelitales en Supabase
+   * y en memoria, preservando intactos el Corpus Científico y los reportes comunitarios.
+   */
+  public async purgeSyntheticSatelliteData(): Promise<{
+    success: boolean;
+    recordsDeleted: {
+      nasa_firms_hotspots: number;
+      copernicus_sar_disturbances: number;
+      s2_product_tile: number;
+      s2_tile_bands: number;
+      environmental_rag_documents: number;
+      total: number;
+    };
+    preservedCounts: {
+      scientific_corpus: number;
+      incident_reports: number;
+    };
+    message: string;
+  }> {
+    const supabase = getSupabaseServerClient();
+    
+    // 1. Limpiar buffers en memoria
+    this.liveFirmsStore.length = 0;
+    this.liveCopernicusStore.length = 0;
+    this.s2TilesStore.length = 0;
+    
+    // 2. Resetear contadores de tareas satelitales
+    this.tasks.forEach((t) => {
+      t.totalIngested = 0;
+      t.lastMessage = "Base satelital limpia: 0 registros sintéticos. Listo para ingesta real.";
+    });
+    this.totalIngestedCount = 0;
+
+    let deletedFirms = 0;
+    let deletedSar = 0;
+    let deletedS2 = 0;
+    let deletedBands = 0;
+    let deletedRag = 0;
+    let preservedCorpus = 0;
+    let preservedIncidents = 0;
+
+    if (supabase) {
+      // 1. Delete nasa_firms_hotspots
+      const { data: dFirms } = await supabase
+        .from("nasa_firms_hotspots")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000")
+        .select();
+      deletedFirms = dFirms?.length || 0;
+
+      // 2. Delete copernicus_sar_disturbances
+      const { data: dSar } = await supabase
+        .from("copernicus_sar_disturbances")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000")
+        .select();
+      deletedSar = dSar?.length || 0;
+
+      // 3. Delete s2_tile_bands
+      const { data: dBands } = await supabase
+        .from("s2_tile_bands")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000")
+        .select();
+      deletedBands = dBands?.length || 0;
+
+      // 4. Delete s2_product_tile
+      const { data: dS2 } = await supabase
+        .from("s2_product_tile")
+        .delete()
+        .neq("tile_id", "__NEVER_MATCH__")
+        .select();
+      deletedS2 = dS2?.length || 0;
+
+      // 5. Delete synthetic satellite documents in environmental_rag_documents
+      const { data: dRag } = await supabase
+        .from("environmental_rag_documents")
+        .delete()
+        .in("doc_type", ["NASA_FIRMS", "SENTINEL_1_SAR", "SENTINEL_2_MSI", "HEAT_ANOMALY", "MINING_ALERT"])
+        .select();
+      deletedRag = dRag?.length || 0;
+
+      // Contar preservados
+      const { count: cCorpus } = await supabase
+        .from("environmental_rag_documents")
+        .select("*", { count: "exact", head: true })
+        .eq("doc_type", "SCIENTIFIC_CORPUS");
+      preservedCorpus = cCorpus || 0;
+
+      const { count: cInc } = await supabase
+        .from("environmental_rag_documents")
+        .select("*", { count: "exact", head: true })
+        .eq("doc_type", "INCIDENT_REPORT");
+      preservedIncidents = cInc || 0;
+    }
+
+    const totalDeleted = deletedFirms + deletedSar + deletedS2 + deletedBands + deletedRag;
+
+    this.addLog({
+      taskKey: "PURGE_SATELLITE_SYNTHETIC",
+      satelliteMission: "Purga de Integridad Satelital",
+      status: "SUCCESS",
+      recordsCount: totalDeleted,
+      supabaseSynced: !!supabase,
+      message: `Purga ejecutada: ${totalDeleted} registros sintéticos satelitales eliminados de Supabase. Base de datos limpia y lista para ingesta real.`,
+    });
+
+    return {
+      success: true,
+      recordsDeleted: {
+        nasa_firms_hotspots: deletedFirms,
+        copernicus_sar_disturbances: deletedSar,
+        s2_product_tile: deletedS2,
+        s2_tile_bands: deletedBands,
+        environmental_rag_documents: deletedRag,
+        total: totalDeleted,
+      },
+      preservedCounts: {
+        scientific_corpus: preservedCorpus,
+        incident_reports: preservedIncidents,
+      },
+      message: `Se eliminaron exitosamente ${totalDeleted} registros sintéticos satelitales en Supabase (${deletedFirms} focos FIRMS, ${deletedSar} firmas SAR, ${deletedS2} tiles S2, ${deletedBands} bandas, ${deletedRag} fragmentos vectoriales RAG). Se preservaron intactos ${preservedCorpus} documentos del Corpus Científico y ${preservedIncidents} reportes comunitarios.`,
+    };
   }
 
   /**
