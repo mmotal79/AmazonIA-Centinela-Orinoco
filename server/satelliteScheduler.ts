@@ -1,5 +1,9 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SATELLITE_API_CONNECTIONS, getApiConnectionForTask, SatelliteApiConnection } from "../src/data/satelliteApiDirectory";
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+// Importa tus utilidades según tu estructura de carpetas
+// import { getApiConnectionForTask, getSupabaseServerClient, generateDeterministicEmbedding768 } from './utils';
 
 export interface ScheduledTaskConfig {
   key: string;
@@ -238,7 +242,7 @@ export async function fetchRealNasaFirmsHotspots(rawApiKey?: string, dayRange: n
       continue;
     }
 
-    const firmsId = `FIRMS-REAL-NOAA20-${acqDate.replace(/-/g, "")}-${cleanTime}-${Math.floor(Math.abs(lat)*100)}_${Math.floor(Math.abs(lng)*100)}`;
+    const firmsId = `FIRMS-REAL-NOAA20-${acqDate.replace(/-/g, "")}-${cleanTime}-${Math.round(Math.abs(lat)*10000)}_${Math.round(Math.abs(lng)*10000)}`;
     const subBasin = lat < 5.0 ? "Alto Orinoco / Río Ventuari" : (lat < 7.5 ? "Cuenca Media Río Caura / Caroní" : "Bajo Orinoco / Delta Amacuro");
     const sectorName = `Anomalía Térmica Real VIIRS NOAA-20 (${subBasin})`;
 
@@ -666,87 +670,82 @@ export async function fetchRealSentinel2Tiles(): Promise<IngestionSyncResult> {
   };
 }
 
-/**
- * CASO 4: Consulta, parsea y sincroniza lecturas telemétricas hidrométricas en tiempo real
- * Deduplicación diferencial: Inserta ÚNICAMENTE si el registro es nuevo o si cambió su nivel de alerta / cota.
- */
-export async function fetchRealHydroTelemetry(): Promise<IngestionSyncResult> {
-  const connection = getApiConnectionForTask("HYDRO_TELEMETRY");
-  const activeUrl = connection?.activeUrl || "/api/telemetry/stations";
-  console.log(`[Telemetría Hidrométrica Ingesta] Consumiendo endpoint desde SatelliteApiDirectory: ${activeUrl}`);
 
-  const rawStations = [
-    {
-      station_name: "Estación San Fernando de Atabapo",
-      river_name: "Río Atabapo / Orinoco",
-      latitude: 4.045,
-      longitude: -67.701,
-      geom_wkt: "POINT(-67.701 4.045)",
-      stage_level_m: 12.85,
-      turbidity_ntu: 88.5,
-      estimated_mercury_ppm: 0.038,
-      alert_status: "CRITICAL",
-      reading_time: new Date().toISOString(),
-    },
-    {
-      station_name: "Estación Hidrométrica Puerto Ayacucho",
-      river_name: "Río Orinoco Medio",
-      latitude: 5.663,
-      longitude: -67.625,
-      geom_wkt: "POINT(-67.625 5.663)",
-      stage_level_m: 14.10,
-      turbidity_ntu: 62.0,
-      estimated_mercury_ppm: 0.015,
-      alert_status: "NORMAL",
-      reading_time: new Date().toISOString(),
-    },
-    {
-      station_name: "Estación Hidrológica Río Caura - Maripa",
-      river_name: "Río Caura",
-      latitude: 7.215,
-      longitude: -65.234,
-      geom_wkt: "POINT(-65.234 7.215)",
-      stage_level_m: 11.20,
-      turbidity_ntu: 94.2,
-      estimated_mercury_ppm: 0.042,
-      alert_status: "CRITICAL",
-      reading_time: new Date().toISOString(),
-    },
-    {
-      station_name: "Estación Cuenca Alta Río Caroní - Ikabarú",
-      river_name: "Río Caroní / Ikabarú",
-      latitude: 4.342,
-      longitude: -61.728,
-      geom_wkt: "POINT(-61.728 4.342)",
-      stage_level_m: 8.45,
-      turbidity_ntu: 115.0,
-      estimated_mercury_ppm: 0.046,
-      alert_status: "CRITICAL",
-      reading_time: new Date().toISOString(),
-    },
-    {
-      station_name: "Estación Telemétrica Río Ventuari - Las Pavas",
-      river_name: "Río Ventuari",
-      latitude: 4.882,
-      longitude: -65.221,
-      geom_wkt: "POINT(-65.221 4.882)",
-      stage_level_m: 7.90,
-      turbidity_ntu: 45.0,
-      estimated_mercury_ppm: 0.012,
-      alert_status: "NORMAL",
-      reading_time: new Date().toISOString(),
-    }
+/**
+ * CASO 4: Consulta, parsea y sincroniza lecturas telemétricas hidrométricas diariamente
+ * Deduplicación diferencial: Inserta ÚNICAMENTE si el registro es nuevo o si cambió su nivel de alerta / cota.
+ * Integración: Construye la URL dinámicamente desde SatelliteApiDirectory.
+ */
+export async function fetchRealHydroTelemetry(): Promise<any> { // Ajusta a Promise<IngestionSyncResult> si tienes la interfaz exportada
+  // 1. Obtener la configuración centralizada del directorio
+  const connection = getApiConnectionForTask("INAMEH_HIDROMETRIA_ORINOCO");
+  const baseUrlTemplate = connection?.baseUrlTemplate || "http://www.inameh.gob.ve/web/{STATION_ENDPOINT}.php";
+  
+  console.log(`[Telemetría Hidrométrica] Iniciando scraping diario usando plantilla: ${baseUrlTemplate}`);
+
+  // 2. Definir solo los metadatos y el endpoint de cada estación (sin URLs completas)
+  const inamehStations = [
+    { endpoint: "roayacucho", name: "Puerto Ayacucho", river: "Río Orinoco", lat: 5.663, lon: -67.625, alertThreshold: 52.0 },
+    { endpoint: "robolivar", name: "Ciudad Bolívar", river: "Río Orinoco", lat: 8.144, lon: -63.545, alertThreshold: 16.5 },
+    { endpoint: "rocaicara", name: "Caicara del Orinoco", river: "Río Orinoco", lat: 7.614, lon: -66.165, alertThreshold: 33.0 },
+    { endpoint: "ropalua", name: "Palúa", river: "Río Caroní", lat: 8.358, lon: -62.693, alertThreshold: 11.0 }
   ];
 
+  const rawStations = [];
+
+  // 3. Proceso de Scraping e Ingesta Dinámica
+  for (const station of inamehStations) {
+    // Reemplazo dinámico de la variable en la URL
+    const targetUrl = baseUrlTemplate.replace('{STATION_ENDPOINT}', station.endpoint);
+    
+    try {
+      const { data: html } = await axios.get(targetUrl, { timeout: 15000 });
+      const $ = cheerio.load(html);
+      
+      // Extracción del valor de cota desde el HTML de INAMEH
+      const bodyText = $('body').text();
+      const levelMatch = bodyText.match(/(?:Nivel|Cota)[^\d]*(\d{1,2}[\.,]\d{1,2})/i);
+      
+      let currentLevel = 0;
+      if (levelMatch && levelMatch[1]) {
+        currentLevel = parseFloat(levelMatch[1].replace(',', '.'));
+      }
+
+      // Cálculo del estatus de alerta
+      let alertStatus = "NORMAL";
+      if (currentLevel >= station.alertThreshold) {
+        alertStatus = "CRITICAL";
+      } else if (currentLevel >= station.alertThreshold * 0.85) {
+        alertStatus = "ELEVATED";
+      }
+
+      rawStations.push({
+        station_name: `Estación Hidrométrica INAMEH - ${station.name}`,
+        river_name: station.river,
+        latitude: station.lat,
+        longitude: station.lon,
+        geom_wkt: `POINT(${station.lon} ${station.lat})`,
+        stage_level_m: currentLevel,
+        turbidity_ntu: 0, // INAMEH no reporta química
+        estimated_mercury_ppm: 0, // INAMEH no reporta química
+        alert_status: alertStatus,
+        reading_time: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error(`[ERROR Scraping] Fallo al consultar la estación ${station.name} en la URL dinámica ${targetUrl}`, error);
+    }
+  }
+
+  // 4. Sincronización en Supabase (Deduplicación)
   const supabase = getSupabaseServerClient();
   let insertedDifferent = 0;
   let statusChanged = 0;
   let skippedDuplicate = 0;
 
-  if (supabase) {
+  if (supabase && rawStations.length > 0) {
     const { data: existingRows } = await supabase
       .from("hydrological_telemetry_readings")
-      .select("station_name, alert_status, stage_level_m, turbidity_ntu")
+      .select("station_name, alert_status, stage_level_m")
       .order("reading_time", { ascending: false });
 
     const latestPerStation = new Map<string, any>();
@@ -757,25 +756,27 @@ export async function fetchRealHydroTelemetry(): Promise<IngestionSyncResult> {
     });
 
     for (const r of rawStations) {
+      if (r.stage_level_m === 0) continue; // Ignorar si el scraping no encontró la cota
+
       const existing = latestPerStation.get(r.station_name);
+      
       if (!existing) {
         const { error: insErr } = await supabase.from("hydrological_telemetry_readings").insert([r]);
         if (!insErr) {
           insertedDifferent++;
-          const embedding = generateDeterministicEmbedding768(`Telemetría INAMEH ${r.station_name} ${r.river_name} Alerta ${r.alert_status} Nivel ${r.stage_level_m}m Turbidez ${r.turbidity_ntu} NTU`);
+          const embedding = generateDeterministicEmbedding768(`Telemetría INAMEH ${r.station_name} ${r.river_name} Alerta ${r.alert_status} Nivel ${r.stage_level_m}m`);
           await supabase.from("environmental_rag_documents").insert([{
             doc_type: "HYDRO_TELEMETRY",
-            source_reference_id: `EST-${r.station_name.replace(/\s+/g, "_")}`,
-            title: `Telemetría Fluvial en Vivo: ${r.station_name}`,
+            source_reference_id: `EST-${r.station_name.replace(/\s+/g, "_")}-${new Date().toISOString().split('T')[0]}`,
+            title: `Reporte Diario Hidrométrico: ${r.station_name}`,
             location_name: r.station_name,
             sub_basin: r.river_name,
             latitude: r.latitude,
             longitude: r.longitude,
-            content_chunk: `Lectura telemétrica horaria transmitida vía satélite GOES/Iridium por INAMEH desde ${r.station_name} (${r.river_name}). Cota: ${r.stage_level_m} m, Turbidez: ${r.turbidity_ntu} NTU, Mercurio estimado: ${r.estimated_mercury_ppm} ppm. Estado de alerta: ${r.alert_status}.`,
+            content_chunk: `Lectura hidrométrica oficial reportada por INAMEH desde ${r.station_name} (${r.river_name}). Cota actual: ${r.stage_level_m} msnm. Estado de alerta: ${r.alert_status}.`,
             metadata: {
               is_synthetic: false,
               alert_status: r.alert_status,
-              turbidity_ntu: r.turbidity_ntu,
               stage_level_m: r.stage_level_m,
               vector_embedding_768: embedding,
             }
@@ -784,8 +785,7 @@ export async function fetchRealHydroTelemetry(): Promise<IngestionSyncResult> {
       } else {
         const isDifferentStatus =
           existing.alert_status !== r.alert_status ||
-          Math.abs((existing.stage_level_m || 0) - r.stage_level_m) >= 0.8 ||
-          Math.abs((existing.turbidity_ntu || 0) - r.turbidity_ntu) >= 15.0;
+          Math.abs((existing.stage_level_m || 0) - r.stage_level_m) >= 0.1;
 
         if (isDifferentStatus) {
           const { error: insErr } = await supabase.from("hydrological_telemetry_readings").insert([r]);
@@ -796,12 +796,12 @@ export async function fetchRealHydroTelemetry(): Promise<IngestionSyncResult> {
             await supabase.from("environmental_rag_documents").insert([{
               doc_type: "HYDRO_TELEMETRY",
               source_reference_id: `EST-${r.station_name.replace(/\s+/g, "_")}-${Date.now()}`,
-              title: `Cambio de Estado Telemétrico: ${r.station_name} (${r.alert_status})`,
+              title: `Actualización de Cota Oficial: ${r.station_name} (${r.alert_status})`,
               location_name: r.station_name,
               sub_basin: r.river_name,
               latitude: r.latitude,
               longitude: r.longitude,
-              content_chunk: `Alerta hidrométrica actualizada a ${r.alert_status} en ${r.station_name} (${r.river_name}). Nueva cota: ${r.stage_level_m} m, Turbidez: ${r.turbidity_ntu} NTU.`,
+              content_chunk: `Variación hidrométrica registrada en ${r.station_name} (${r.river_name}). Nueva cota oficial INAMEH: ${r.stage_level_m} msnm. Estatus: ${r.alert_status}.`,
               metadata: {
                 is_synthetic: false,
                 alert_status: r.alert_status,
@@ -825,7 +825,7 @@ export async function fetchRealHydroTelemetry(): Promise<IngestionSyncResult> {
     statusChanged,
     skippedDuplicate,
     records: rawStations,
-    message: `Telemetría Cuenca (${connection?.id}): ${rawStations.length} estaciones evaluadas. ${insertedDifferent} insertadas/actualizadas por cambio de estatus. ${skippedDuplicate} duplicados idénticos omitidos.`
+    message: `Scraping INAMEH finalizado: ${rawStations.length} portales consultados. ${insertedDifferent} cotas actualizadas. ${skippedDuplicate} niveles idénticos omitidos.`
   };
 }
 

@@ -1350,5 +1350,96 @@ export const LivePipelineService = {
       throw new Error('Error al obtener estado satelital de Supabase');
     }
     return await res.json();
+  },
+
+  /**
+   * Ejecuta una auditoría integral y rigurosa de consistencia, integridad y conteo de datos en Supabase
+   */
+  async auditSupabase(): Promise<SupabaseAuditReport> {
+    const res = await fetch('/api/supabase/audit');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Fallo en la ejecución de la auditoría de Supabase');
+    }
+    return await res.json();
+  },
+
+  /**
+   * Obtiene el feed de datos reales almacenados en Supabase con totalizadores exactos
+   */
+  async getLiveFeedData(): Promise<LiveFeedResponse> {
+    const res = await fetch('/api/ingestion/live-feed');
+    if (!res.ok) {
+      throw new Error('Error al consultar el feed de datos en vivo de Supabase');
+    }
+    return await res.json();
   }
 };
+
+export interface SupabaseAuditReport {
+  success: boolean;
+  timestamp: string;
+  durationMs: number;
+  overallStatus: 'OPTIMAL' | 'HEALTHY' | 'WARNING' | 'ERROR';
+  integrityScore: number;
+  verdict: string;
+  totalRecordsAudited: number;
+  tables: {
+    nasa_firms_hotspots: number;
+    copernicus_sar_disturbances: number;
+    s2_product_tile: number;
+    s2_tile_bands: number;
+    hydrological_telemetry_readings: number;
+    environmental_rag_documents: number;
+  };
+  satelliteBreakdown: Record<string, number>;
+  ragBreakdown: Record<string, number>;
+  checks: Array<{
+    id: string;
+    name: string;
+    category: 'GEOSPATIAL' | 'TEMPORAL' | 'UNIQUENESS' | 'PURITY' | 'VECTORS' | 'PHYSICAL';
+    status: 'PASSED' | 'WARNING' | 'FAILED';
+    score: number;
+    description: string;
+    metrics: string;
+    details?: any;
+  }>;
+  syntheticPurity: {
+    syntheticRecordsFound: number;
+    purityPercentage: number;
+    verdict: string;
+  };
+  error?: string;
+}
+
+export interface LiveFeedItem {
+  id: string;
+  source: 'NASA_FIRMS' | 'COPERNICUS_SAR' | 'SENTINEL_2_MSI' | 'KOBO_TOOLBOX';
+  satellite: string;
+  sectorName: string;
+  subBasin: string;
+  postgisGeomText: string;
+  latitude: number;
+  longitude: number;
+  acqDate: string;
+  acqTime: string;
+  criticalMetricsText: string;
+  confidence: string;
+  vectorIndexed: boolean;
+  embeddingDim: number;
+  timestamp: string;
+}
+
+export interface LiveFeedResponse {
+  success: boolean;
+  totalCount: number;
+  counts: {
+    nasaFirms: number;
+    copernicusSar: number;
+    sentinel2: number;
+    telemetry: number;
+  };
+  items: LiveFeedItem[];
+  timestamp: string;
+}
+

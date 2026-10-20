@@ -270,3 +270,4 @@ export const TelemetryView: React.FC<TelemetryViewProps> = ({
     </div>
   );
 };
+export default TelemetryView;

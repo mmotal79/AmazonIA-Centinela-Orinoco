@@ -2,7 +2,7 @@ export interface SatelliteApiConnection {
   id: string;
   name: string;
   agency: string;
-  category: 'THERMAL_INFRARED' | 'SAR_RADAR' | 'MULTISPECTRAL_OPTICAL' | 'FOREST_ALERTS' | 'REGIONAL_BASIN' | 'INTERNAL_PIPELINE';
+  category: 'THERMAL_INFRARED' | 'SAR_RADAR' | 'MULTISPECTRAL_OPTICAL' | 'FOREST_ALERTS' | 'REGIONAL_BASIN' | 'INTERNAL_PIPELINE' | 'RIVER_TELEMETRY';
   sensorMissions: string[];
   activeUrl: string;
   baseUrlTemplate: string;
@@ -18,7 +18,7 @@ export interface SatelliteApiConnection {
   };
   authType: 'MAP_KEY_PARAM' | 'BEARER_TOKEN_OAUTH2' | 'BASIC_AUTH' | 'PUBLIC_NO_AUTH' | 'INTERNAL_PROXY' | 'PUBLIC_OGC';
   description: string;
-  payloadFormat: 'CSV' | 'GEOJSON' | 'JSON' | 'NETCDF' | 'GEOTIFF' | 'PNG_WMS' | 'GEOJSON_STAC';
+  payloadFormat: 'CSV' | 'GEOJSON' | 'JSON' | 'NETCDF' | 'GEOTIFF' | 'PNG_WMS' | 'GEOJSON_STAC' | 'HTML_SCRAPING';
   sampleCurlCommand: string;
   queryParameters: {
     name: string;
@@ -231,31 +231,38 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
       { name: 'limit', description: 'Límite de granulas a recuperar', example: '25' }
     ]
   },
+  /* =========================================================================
+   * 7. INAMEH - Red Hidrométrica Nacional (Web Scraping)
+   * =========================================================================
+   */
   {
-    id: 'HYDRO_TELEMETRY_ORINOCO',
-    name: 'Red de Telemetría Hidrométrica de Cuenca',
-    agency: 'Red Hidrológica Nacional / INAMEH',
-    category: 'REGIONAL_BASIN',
-    sensorMissions: ['Estaciones Telemétricas Automáticas INAMEH / Orinoco', 'Sensores Fluviométricos y Turbidímetros'],
-    activeUrl: '/api/telemetry/stations',
-    baseUrlTemplate: '/api/telemetry/stations?basin={BASIN}&limit={LIMIT}',
-    documentationUrl: '/api/health',
-    updateFrequency: 'Cada 1 Hora (Tiempo Real Fluvial)',
-    spatialResolution: 'Estaciones Fijas Telemétricas / Geometría Point WGS84',
+    id: 'INAMEH_HIDROMETRIA_ORINOCO',
+    name: 'INAMEH - Red Hidrométrica Oficial (Ríos Orinoco y Caroní)',
+    agency: 'Instituto Nacional de Meteorología e Hidrología (INAMEH)',
+    category: 'RIVER_TELEMETRY',
+    sensorMissions: ['Red de Estaciones Físicas In-Situ (Reglas Limnimétricas)'],
+    activeUrl: 'http://www.inameh.gob.ve/web/robolivar.php',
+    baseUrlTemplate: 'http://www.inameh.gob.ve/web/{STATION_ENDPOINT}.php',
+    documentationUrl: 'http://www.inameh.gob.ve/web/hidrologia.php',
+    updateFrequency: 'Diaria (Reporte Matutino)',
+    spatialResolution: 'Estaciones Puntuales',
     amazonBoundingBox: {
-      west: -73.5,
-      south: 0.6,
-      east: -59.8,
-      north: 12.2,
-      bboxString: '-73.5,0.6,-59.8,12.2',
+      west: -68.5,
+      south: 0.5,
+      east: -58.5,
+      north: 10.2,
+      bboxString: '-68.5,0.5,-58.5,10.2',
     },
     authType: 'PUBLIC_NO_AUTH',
-    description: 'Lecturas automáticas de cotas de nivel del río (m), turbidez (NTU) y concentración de mercurio en puntos neurálgicos de los ríos Orinoco, Caroní, Caura, Ventuari y Atabapo.',
-    payloadFormat: 'JSON',
-    sampleCurlCommand: 'curl -X GET "http://localhost:3000/api/telemetry/stations"',
+    description: 'Ingesta automatizada (scraping) de las cotas hidrométricas oficiales para las estaciones Puerto Ayacucho, Ciudad Bolívar, Caicara del Orinoco y Palúa.',
+    payloadFormat: 'HTML_SCRAPING',
+    sampleCurlCommand: 'curl.exe -X GET "http://www.inameh.gob.ve/web/robolivar.php"',
     queryParameters: [
-      { name: 'basin', description: 'Filtro por subcuenca fluvial (Orinoco, Caroni, Caura, Ventuari, Atabapo)', example: 'Orinoco' },
-      { name: 'limit', description: 'Límite de estaciones a consultar', example: '20' }
+      { 
+        name: 'STATION_ENDPOINT', 
+        description: 'Sufijo del endpoint PHP para consultar la estación hidrométrica específica.', 
+        example: 'roayacucho | robolivar | rocaicara | ropalua' 
+      }
     ]
   },
   {

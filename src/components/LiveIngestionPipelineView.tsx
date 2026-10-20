@@ -49,7 +49,9 @@ import {
   SUPABASE_POSTGIS_PGVECTOR_SQL,
   INITIAL_S2_PRODUCT_TILES,
   INITIAL_S2_TILE_BANDS,
-  INITIAL_ORBIT_SCHEDULES
+  INITIAL_ORBIT_SCHEDULES,
+  LiveFeedResponse,
+  LiveFeedItem
 } from '../services/liveDataPipelineService';
 import { SATELLITE_API_CONNECTIONS } from '../data/satelliteApiDirectory';
 
@@ -69,6 +71,10 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
   const [copernicusList, setCopernicusList] = useState<CopernicusDisturbance[]>(INITIAL_LIVE_COPERNICUS_DISTURBANCES);
   const [koboList, setKoboList] = useState<KoboFieldPatrolReport[]>(INITIAL_LIVE_KOBO_PATROL_REPORTS);
   const [copiedUrlId, setCopiedUrlId] = useState<string | null>(null);
+  
+  // Real Database Feed State
+  const [liveFeedData, setLiveFeedData] = useState<LiveFeedResponse | null>(null);
+  const [isLoadingFeed, setIsLoadingFeed] = useState<boolean>(false);
   
   // Sentinel-2 S2 State
   const [s2Tiles, setS2Tiles] = useState<S2ProductTile[]>(INITIAL_S2_PRODUCT_TILES);
@@ -114,14 +120,31 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
   const [isExecutingRag, setIsExecutingRag] = useState(false);
   const [ragResult, setRagResult] = useState<RagIntelligenceSynthesis | null>(null);
 
-  // Live Feed Table Filter
-  const [feedFilter, setFeedFilter] = useState<'ALL' | 'NASA_FIRMS' | 'COPERNICUS_SAR' | 'KOBO_TOOLBOX'>('ALL');
+  // Live Feed Table Filter (Incluye Sentinel-2 MSI real y telemetría de cuenca)
+  const [feedFilter, setFeedFilter] = useState<'ALL' | 'NASA_FIRMS' | 'COPERNICUS_SAR' | 'SENTINEL_2_MSI' | 'KOBO_TOOLBOX'>('ALL');
 
-  // Load connector status & S2 data
+  const fetchRealFeed = async () => {
+    setIsLoadingFeed(true);
+    try {
+      const data = await LivePipelineService.getLiveFeedData();
+      if (data && data.success) {
+        setLiveFeedData(data);
+      }
+    } catch (e) {
+      console.warn('Error fetching real live feed:', e);
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  };
+
+  // Load connector status, S2 data & real feed from Supabase
   useEffect(() => {
     LivePipelineService.getConnectorStatus().then(status => setConnectorStatus(status));
     LivePipelineService.getS2ProductTiles().then(tiles => setS2Tiles(tiles));
     LivePipelineService.getOrbitSchedules().then(scheds => setOrbitSchedules(scheds));
+    fetchRealFeed();
+    const interval = setInterval(fetchRealFeed, 7000);
+    return () => clearInterval(interval);
   }, []);
 
   // Trigger NASA FIRMS
@@ -442,7 +465,7 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Feed de Datos Ingestados ({firmsList.length + copernicusList.length + koboList.length})</span>
+            <span>Feed de Datos Ingestados ({liveFeedData?.totalCount ?? (firmsList.length + copernicusList.length + koboList.length)})</span>
           </button>
 
           <button

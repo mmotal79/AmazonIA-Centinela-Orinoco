@@ -45,19 +45,71 @@ export const SupabaseRpcService = {
       try {
         const { data, error } = await supabase.rpc('get_heat_anomalies_geojson', {
           p_min_confidence: params?.minConfidence || 'low',
-          p_limit: params?.limit || 100
+          p_limit: params?.limit || 1000
         });
 
         if (!error && data) {
           // Si retorna FeatureCollection o array
-          const parsed = Array.isArray(data) ? data : data.features?.map((f: any) => f.properties) || [];
-          return { data: parsed.length > 0 ? parsed : INITIAL_HEAT_ANOMALIES, source: 'supabase_rpc' };
+          const parsed = Array.isArray(data) ? data : data.features?.map((f: any) => {
+            const coords = f.geometry?.coordinates || [];
+            return {
+              ...f.properties,
+              latitude: f.properties.latitude ?? coords[1],
+              longitude: f.properties.longitude ?? coords[0],
+            };
+          }) || [];
+          if (parsed.length > 0) {
+            return { data: parsed, source: 'supabase_rpc' };
+          }
+        }
+
+        // Consulta directa a tabla nasa_firms_hotspots en Supabase
+        const { data: tableData, error: tableErr } = await supabase
+          .from('nasa_firms_hotspots')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!tableErr && tableData && tableData.length > 0) {
+          const mapped: HeatAnomaly[] = tableData.map((t: any) => ({
+            id: t.firms_id || t.id,
+            title: t.sector_name || `Anomalía Térmica ${t.satellite}`,
+            location: t.sub_basin || 'Amazonía Venezolana',
+            latitude: t.latitude,
+            longitude: t.longitude,
+            brightnessTempK: t.brightness_temp_k,
+            frpMw: t.frp_mw,
+            confidence: t.confidence,
+            acqDate: t.acq_date,
+            acqTime: t.acq_time,
+            satellite: t.satellite,
+            dayNight: t.day_night || 'D',
+          }));
+          return { data: mapped, source: 'supabase_rpc' };
         }
       } catch (err: any) {
         console.warn('Fallo llamada RPC get_heat_anomalies_geojson, usando caché local:', err);
       }
     }
     return { data: INITIAL_HEAT_ANOMALIES, source: 'local_geojson' };
+  },
+
+  /**
+   * Conteo exacto en tiempo real de focos térmicos almacenados en Supabase
+   */
+  async getRealThermalHotspotsCount(): Promise<number> {
+    if (supabase) {
+      try {
+        const { count, error } = await supabase
+          .from('nasa_firms_hotspots')
+          .select('*', { count: 'exact', head: true });
+        if (!error && typeof count === 'number') {
+          return count;
+        }
+      } catch (e) {
+        console.warn('Error contando focos en Supabase:', e);
+      }
+    }
+    return 0;
   },
 
   /**

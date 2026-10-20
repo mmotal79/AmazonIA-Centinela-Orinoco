@@ -93,7 +93,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 font-mono text-[10px] sm:text-[11px] shrink-0 ml-3">
-          <span className="text-amber-400 font-medium">
+          <span 
+            className="text-amber-400 font-medium flex items-center gap-1 cursor-default"
+            title="Dato real tomado de la base de datos Supabase (nasa_firms_hotspots) para la Amazonía venezolana"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block animate-pulse" />
             🔥 {thermalAnomaliesCount} Focos Térmicos (VIIRS)
           </span>
           <span className="text-slate-700">|</span>

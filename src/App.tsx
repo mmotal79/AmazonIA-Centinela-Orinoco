@@ -100,6 +100,15 @@ export default function App() {
 
   useEffect(() => {
     loadData();
+    // Sondeo periódico para mantener la relación real de datos de focos térmicos y anomalías en tiempo real
+    const dataInterval = setInterval(() => {
+      SupabaseRpcService.getHeatAnomalies().then(res => {
+        if (res.data && res.data.length > 0) {
+          setHeatAnomalies(res.data);
+        }
+      }).catch(() => {});
+    }, 7000);
+
     // Corregir retroactivamente la base de datos para los últimos 3 documentos del corpus científico si están en Supabase
     fetch("/api/corpus/correct-db", { method: "POST" })
       .then((res) => res.json())
@@ -109,6 +118,8 @@ export default function App() {
         }
       })
       .catch((err) => console.warn("[Centinela Correction] Error corrigiendo base de datos:", err));
+
+    return () => clearInterval(dataInterval);
   }, []);
 
   // Handlers for Scientific Corpus & SAR
