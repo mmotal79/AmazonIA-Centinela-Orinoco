@@ -35,6 +35,7 @@ import {
   SchedulerStatusResponse 
 } from '../types';
 import { LivePipelineService } from '../services/liveDataPipelineService';
+import { getApiConnectionForTask } from '../data/satelliteApiDirectory';
 
 interface SupabaseAutomationSchedulerViewProps {
   onNavigateToRag?: () => void;
@@ -48,6 +49,7 @@ export const SupabaseAutomationSchedulerView: React.FC<SupabaseAutomationSchedul
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatusResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null);
+  const [taskTriggerResults, setTaskTriggerResults] = useState<Record<string, { success: boolean; message: string; syncStats?: any }>>({});
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
   const [copiedReport, setCopiedReport] = useState<boolean>(false);
   const [sqlScript, setSqlScript] = useState<string>('');
@@ -177,14 +179,31 @@ export const SupabaseAutomationSchedulerView: React.FC<SupabaseAutomationSchedul
     setTriggeringTaskKey(taskKey);
     try {
       const res = await LivePipelineService.triggerScheduledTask(taskKey, nasaApiKey);
+      if (res) {
+        setTaskTriggerResults(prev => ({
+          ...prev,
+          [taskKey]: {
+            success: res.success,
+            message: res.message || res.error || 'Ingesta completada.',
+            syncStats: res.syncStats,
+          }
+        }));
+      }
       if (!res.success && res.error) {
         console.warn(`Aviso en tarea ${taskKey}:`, res.error);
       }
       const updated = await LivePipelineService.getSchedulerStatus();
       setSchedulerStatus(updated);
       await refreshDbStatus();
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Error triggering task:', e);
+      setTaskTriggerResults(prev => ({
+        ...prev,
+        [taskKey]: {
+          success: false,
+          message: e?.message || 'Error ejecutando ingesta.',
+        }
+      }));
     } finally {
       setTimeout(() => setTriggeringTaskKey(null), 800);
     }
@@ -587,6 +606,9 @@ El orquestador se encuentra plenamente operativo en la plataforma Centinela Orin
             const progressPct = task.intervalSeconds > 0 
               ? Math.max(0, Math.min(100, Math.round(((task.intervalSeconds - task.countdownSeconds) / task.intervalSeconds) * 100)))
               : 100;
+            const conn = getApiConnectionForTask(task.key);
+            const endpointUrl = task.endpointUrl || conn?.activeUrl || '';
+            const triggerRes = taskTriggerResults[task.key];
 
             return (
               <div 
@@ -613,8 +635,24 @@ El orquestador se encuentra plenamente operativo en la plataforma Centinela Orin
                     Agencia: {task.agency}
                   </p>
 
+                  {/* Endpoint URL from SatelliteApiDirectory.ts */}
+                  <div className="mt-2.5 p-2 rounded-lg bg-[#070d14] border border-slate-800/90 text-[10px] font-mono">
+                    <div className="flex items-center justify-between text-slate-400 mb-1">
+                      <span className="flex items-center gap-1 text-slate-400 font-semibold">
+                        <Globe className="w-2.5 h-2.5 text-sky-400" />
+                        URL SatelliteApiDirectory.ts:
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 bg-sky-950/60 border border-sky-800/50 text-sky-300 rounded">
+                        {conn?.payloadFormat || 'CSV/JSON'}
+                      </span>
+                    </div>
+                    <p className="text-amber-200/90 break-all select-all font-mono text-[9.5px] leading-relaxed bg-black/50 p-1.5 rounded border border-slate-800" title={endpointUrl}>
+                      {endpointUrl}
+                    </p>
+                  </div>
+
                   {/* Countdown Timer */}
-                  <div className="mt-4 p-2.5 rounded-lg bg-[#070d14] border border-slate-800/80">
+                  <div className="mt-2.5 p-2.5 rounded-lg bg-[#070d14] border border-slate-800/80">
                     <div className="flex items-center justify-between text-xs mb-1.5">
                       <span className="text-slate-400 flex items-center gap-1">
                         <Clock className="w-3 h-3 text-slate-500" />
@@ -639,19 +677,51 @@ El orquestador se encuentra plenamente operativo en la plataforma Centinela Orin
                     </div>
                   </div>
 
-                  {/* Metrics and Status */}
-                  <div className="mt-3 flex items-center justify-between text-xs border-t border-slate-800/60 pt-2 font-mono">
-                    <span className="text-slate-400">Total Ingestados:</span>
-                    <span className="font-bold text-emerald-400">{task.totalIngested} eventos</span>
+                  {/* Synchronized Storage in Supabase & Differential Deduplication */}
+                  <div className="mt-2.5 p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] font-mono">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Database className="w-3 h-3 text-emerald-400" />
+                        Sincronización Supabase:
+                      </span>
+                      <span className="font-bold text-emerald-400">
+                        {task.differentStatusCount ?? task.totalIngested} guardados
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Duplicados omitidos:</span>
+                      <span className="text-slate-500 font-semibold">{task.skippedDuplicateCount ?? 0} sin repetir</span>
+                    </div>
+                    <p className="text-[9px] text-slate-500 mt-1 italic">
+                      Deduplicación activa: inserta solo si el estatus es diferente.
+                    </p>
                   </div>
 
-                  <div className="mt-1 text-[10px] text-slate-400 truncate" title={task.lastMessage}>
+                  {/* Trigger result feedback */}
+                  {triggerRes && (
+                    <div className={`mt-2 p-2 rounded-lg border text-[10px] font-mono leading-tight ${
+                      triggerRes.success
+                        ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-200'
+                        : 'bg-rose-950/60 border-rose-800/80 text-rose-200'
+                    }`}>
+                      <p className="font-semibold truncate">{triggerRes.message}</p>
+                      {triggerRes.syncStats && (
+                        <div className="mt-1 flex items-center justify-between text-[9px] text-emerald-300/90 border-t border-emerald-800/40 pt-1">
+                          <span>Evaluados: {triggerRes.syncStats.evaluated}</span>
+                          <span>Nuevos/Dif: {triggerRes.syncStats.insertedDifferent}</span>
+                          <span>Omitidos: {triggerRes.syncStats.skippedDuplicate}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-2 text-[10px] text-slate-400 truncate" title={task.lastMessage}>
                     <span className="text-slate-500">Estado:</span> {task.lastMessage || 'Monitoreo activo'}
                   </div>
                 </div>
 
                 {/* Trigger Button */}
-                <div className="mt-4 pt-2 border-t border-slate-800/60">
+                <div className="mt-3 pt-2 border-t border-slate-800/60">
                   <button
                     onClick={() => handleTriggerManual(task.key)}
                     disabled={isTriggering}

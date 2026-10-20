@@ -404,9 +404,20 @@ export interface SatelliteScheduledTask {
   countdownSeconds: number;
   status: 'IDLE' | 'RUNNING' | 'SUCCESS' | 'ERROR';
   totalIngested: number;
+  differentStatusCount?: number;
+  skippedDuplicateCount?: number;
   supabaseTable: string;
+  apiConnectionId?: string;
+  endpointUrl?: string;
   vectorReady: boolean;
   lastMessage?: string;
+  lastSyncStats?: {
+    evaluated: number;
+    insertedDifferent: number;
+    skippedDuplicate: number;
+    statusChanged: number;
+    vectorEmbeddings: number;
+  };
 }
 
 export interface SchedulerLogEntry {

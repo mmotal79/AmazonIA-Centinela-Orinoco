@@ -98,27 +98,27 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'Agencia Espacial Europea (ESA) / Unión Europea',
     category: 'SAR_RADAR',
     sensorMissions: ['Sentinel-1A / Sentinel-1C (Banda C SAR, Polarización Dual VV+VH)'],
-    activeUrl: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-68.5,0.5,-58.5,10.2&collections=sentinel-1-grd&datetime=2024-10-19T00:00:00Z/2026-10-19T23:59:59Z&limit=100',
+    activeUrl: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-73.5,0.6,-59.8,12.2&collections=sentinel-1-grd&limit=50',
     baseUrlTemplate: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox={WEST,SOUTH,EAST,NORTH}&collections={COLLECTION}&datetime={START_DATE}/{END_DATE}&limit={LIMIT}',
     documentationUrl: 'https://documentation.dataspace.copernicus.eu/APIs/STAC.html',
-    updateFrequency: 'Cada 6 a 12 días por pasada orbital',
+    updateFrequency: 'Cada 12 horas (Revisita orbital 6-12d)',
     spatialResolution: '10 metros (GRD Ground Range Detected - Interferometric Wide)',
     amazonBoundingBox: {
-      west: -68.5,
-      south: 0.5,
-      east: -58.5,
-      north: 10.2,
-      bboxString: '-68.5,0.5,-58.5,10.2',
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
     },
     authType: 'BEARER_TOKEN_OAUTH2',
     description: 'Catálogo e índice de pasadas de radar de apertura sintética (SAR). Penetra la nubosidad perpetua de la selva amazónica para detectar desmonte, pistas clandestinas y dragado aluvial.',
     payloadFormat: 'GEOJSON_STAC',
-    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-68.5,0.5,-58.5,10.2&collections=sentinel-1-grd&datetime=2024-10-19T00:00:00Z/2026-10-19T23:59:59Z&limit=100"',
+    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-73.5,0.6,-59.8,12.2&collections=sentinel-1-grd&limit=50"',
     queryParameters: [
-      { name: 'bbox', description: 'Bounding box geográfico en grados decimales [Oeste,Sur,Este,Norte]', example: '-68.5,0.5,-58.5,10.2' },
+      { name: 'bbox', description: 'Bounding box geográfico en grados decimales [Oeste,Sur,Este,Norte]', example: '-73.5,0.6,-59.8,12.2' },
       { name: 'collections', description: 'Identificador oficial del producto satelital STAC', example: 'sentinel-1-grd' },
       { name: 'datetime', description: 'Rango histórico ISO-8601 de 2 años', example: '2024-10-19T00:00:00Z/2026-10-19T23:59:59Z' },
-      { name: 'limit', description: 'Límite máximo de granulas o escenas a retornar por página', example: '100' }
+      { name: 'limit', description: 'Límite máximo de granulas o escenas a retornar por página', example: '50' }
     ]
   },
   {
@@ -209,26 +209,53 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     agency: 'Agencia Espacial Europea (ESA) / Unión Europea',
     category: 'MULTISPECTRAL_OPTICAL',
     sensorMissions: ['Sentinel-2A / Sentinel-2B / Sentinel-2C (Multispectral Instrument - 13 Bandas Espectrales)'],
-    activeUrl: 'https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=OData.CSC.Intersects(area=geography\'SRID=4326;POLYGON((-67.5 3.5, -61.5 3.5, -61.5 9.5, -67.5 9.5, -67.5 3.5))\') and Attributes/OData.CSC.DoubleAttribute/any(att:att/Name eq \'cloudCover\' and att/Value le 20.0)',
+    activeUrl: 'https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-73.5,0.6,-59.8,12.2&collections=sentinel-2-l2a&limit=25',
     baseUrlTemplate: 'https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter={SPATIAL_INTERSECTION} and {CLOUD_COVER_FILTER}',
     documentationUrl: 'https://dataspace.copernicus.eu/analyse/apis/odata',
-    updateFrequency: 'Cada 5 días por pasada orbital',
+    updateFrequency: 'Cada 24 horas (Ventana Revisita orbital 5d)',
     spatialResolution: '10 metros (Bandas B02, B03, B04, B08), 20 metros (B11, B12, SCL)',
     amazonBoundingBox: {
-      west: -67.5,
-      south: 3.5,
-      east: -61.5,
-      north: 9.5,
-      bboxString: '-67.5,3.5,-61.5,9.5',
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
     },
     authType: 'BEARER_TOKEN_OAUTH2',
     description: 'Catálogo de imágenes ópticas multiespectrales para la evaluación de cobertura de bosque primario, turbidez de cuerpos de agua por lavado de oro (sedimentos) y clasificación de escenas (SCL) en la Amazonía venezolana.',
-    payloadFormat: 'JSON',
-    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=OData.CSC.Intersects(area=geography\'SRID=4326;POLYGON((-67.5 3.5, -66.5 3.5, -66.5 4.5, -67.5 4.5, -67.5 3.5))\')"',
+    payloadFormat: 'GEOJSON_STAC',
+    sampleCurlCommand: 'curl -X GET "https://catalogue.dataspace.copernicus.eu/stac/search?bbox=-73.5,0.6,-59.8,12.2&collections=sentinel-2-l2a&limit=25"',
     queryParameters: [
-      { name: 'OData.CSC.Intersects', description: 'Intersección geográfica utilizando objetos geography OGC WKT', example: 'geography\'SRID=4326;POLYGON(...)\'' },
-      { name: 'cloudCover', description: 'Porcentaje máximo de cobertura de nubes permitido', example: '20.0' },
-      { name: 'sensingStartDate', description: 'Filtro temporal para fecha de inicio de captura satelital', example: '2026-08-01T00:00:00.000Z' }
+      { name: 'bbox', description: 'Bounding box en grados decimales [Oeste,Sur,Este,Norte]', example: '-73.5,0.6,-59.8,12.2' },
+      { name: 'collections', description: 'Colección de productos L2A corregidos atmosféricamente', example: 'sentinel-2-l2a' },
+      { name: 'limit', description: 'Límite de granulas a recuperar', example: '25' }
+    ]
+  },
+  {
+    id: 'HYDRO_TELEMETRY_ORINOCO',
+    name: 'Red de Telemetría Hidrométrica de Cuenca',
+    agency: 'Red Hidrológica Nacional / INAMEH',
+    category: 'REGIONAL_BASIN',
+    sensorMissions: ['Estaciones Telemétricas Automáticas INAMEH / Orinoco', 'Sensores Fluviométricos y Turbidímetros'],
+    activeUrl: '/api/telemetry/stations',
+    baseUrlTemplate: '/api/telemetry/stations?basin={BASIN}&limit={LIMIT}',
+    documentationUrl: '/api/health',
+    updateFrequency: 'Cada 1 Hora (Tiempo Real Fluvial)',
+    spatialResolution: 'Estaciones Fijas Telemétricas / Geometría Point WGS84',
+    amazonBoundingBox: {
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
+    },
+    authType: 'PUBLIC_NO_AUTH',
+    description: 'Lecturas automáticas de cotas de nivel del río (m), turbidez (NTU) y concentración de mercurio en puntos neurálgicos de los ríos Orinoco, Caroní, Caura, Ventuari y Atabapo.',
+    payloadFormat: 'JSON',
+    sampleCurlCommand: 'curl -X GET "http://localhost:3000/api/telemetry/stations"',
+    queryParameters: [
+      { name: 'basin', description: 'Filtro por subcuenca fluvial (Orinoco, Caroni, Caura, Ventuari, Atabapo)', example: 'Orinoco' },
+      { name: 'limit', description: 'Límite de estaciones a consultar', example: '20' }
     ]
   },
   {
@@ -243,11 +270,11 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     updateFrequency: 'Pipeline en tiempo real con disparadores automáticos y manuales',
     spatialResolution: 'Geometrías nativas PostGIS (Point / Polygon WGS84 EPSG:4326)',
     amazonBoundingBox: {
-      west: -68.5,
-      south: 0.5,
-      east: -58.5,
-      north: 10.2,
-      bboxString: '-68.5,0.5,-58.5,10.2',
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
     },
     authType: 'INTERNAL_PROXY',
     description: 'Rutas de API internas del servidor de Centinela Orinoco que protegen las credenciales de NASA y Copernicus, ejecutan indexación espacial PostGIS y generan embeddings vectoriales con Gemini 3.x.',
@@ -261,3 +288,22 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
     ]
   }
 ];
+
+/**
+ * Mapeo oficial entre las tareas programadas del componente de ingesta y las conexiones del directorio
+ */
+export const TASK_TO_API_CONNECTION_MAP: Record<string, string> = {
+  NASA_FIRMS: 'NASA_FIRMS_VIIRS_NOAA20',
+  SENTINEL_1_SAR: 'COPERNICUS_CDSE_SENTINEL1_SAR',
+  SENTINEL_2_MSI: 'COPERNICUS_CDSE_SENTINEL2_MSI',
+  HYDRO_TELEMETRY: 'HYDRO_TELEMETRY_ORINOCO',
+};
+
+/**
+ * Obtiene la conexión satelital oficial configurada en SatelliteApiDirectory para una tarea
+ */
+export function getApiConnectionForTask(taskKey: string): SatelliteApiConnection | undefined {
+  const connectionId = TASK_TO_API_CONNECTION_MAP[taskKey] || taskKey;
+  return SATELLITE_API_CONNECTIONS.find(c => c.id === connectionId);
+}
+

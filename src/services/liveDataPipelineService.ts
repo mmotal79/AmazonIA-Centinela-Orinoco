@@ -1182,7 +1182,7 @@ export const LivePipelineService = {
   /**
    * Fuerza la ejecución manual e inmediata de una tarea de satélite programada
    */
-  async triggerScheduledTask(taskKey: string, apiKey?: string): Promise<{ success: boolean; message: string; record?: any; error?: string }> {
+  async triggerScheduledTask(taskKey: string, apiKey?: string): Promise<{ success: boolean; message: string; record?: any; error?: string; syncStats?: any }> {
     try {
       const effectiveKey = (apiKey && apiKey.trim().length > 0)
         ? apiKey.trim()
