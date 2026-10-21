@@ -231,8 +231,40 @@ export const SATELLITE_API_CONNECTIONS: SatelliteApiConnection[] = [
       { name: 'limit', description: 'Límite de granulas a recuperar', example: '25' }
     ]
   },
+  {
+    id: 'COPERNICUS_CDSE_SENTINEL3_OLCI_SLSTR',
+    name: 'Copernicus Data Space Ecosystem (CDSE) - Sentinel-3 OLCI / SLSTR Water & Climate API',
+    agency: 'Agencia Espacial Europea (ESA) / EUMETSAT / Unión Europea',
+    category: 'MULTISPECTRAL_OPTICAL',
+    sensorMissions: [
+      'Sentinel-3A / Sentinel-3B (OLCI Ocean & Land Colour Instrument - 21 Bandas Espectrales)',
+      'Sentinel-3A / Sentinel-3B (SLSTR Sea & Land Surface Temperature Radiometer)'
+    ],
+    activeUrl: "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=Collection/Name eq 'SENTINEL-3' and contains(Name,'OL_2_WFR') and OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-68.0 4.0, -61.0 4.0, -61.0 9.0, -68.0 9.0, -68.0 4.0))')&$orderby=ContentDate/Start desc&$top=10",
+    baseUrlTemplate: 'https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=Collection/Name eq \'SENTINEL-3\' and {PRODUCT_TYPE_FILTER} and {POLYGON_FILTER}&$orderby=ContentDate/Start desc&$top={LIMIT}',
+    documentationUrl: 'https://documentation.dataspace.copernicus.eu/APIs/OData.html',
+    updateFrequency: 'Cada 1 a 2 días (Cobertura global diaria en ecuador)',
+    spatialResolution: '300 metros (OLCI Full Resolution FR) / 500m - 1km (SLSTR)',
+    amazonBoundingBox: {
+      west: -73.5,
+      south: 0.6,
+      east: -59.8,
+      north: 12.2,
+      bboxString: '-73.5,0.6,-59.8,12.2',
+    },
+    authType: 'PUBLIC_NO_AUTH',
+    description: 'Catálogo oficial OData de la ESA para monitoreo biogeoquímico y bio-óptico fluvial. OLCI Nivel 2 (OL_2_WFR) entrega concentración de materia suspendida total (TSM/SPM en g/m³ para turbidez), clorofila y absorción de materia orgánica disuelta (ADG443 proxy de pH). SLSTR Nivel 2 (SL_2_WST) mide temperatura superficial del agua empleada en compensación de conductividad eléctrica.',
+    payloadFormat: 'JSON',
+    sampleCurlCommand: 'curl -s "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?\\$filter=Collection/Name eq \'SENTINEL-3\' and contains(Name,\'OL_2_WFR\') and OData.CSC.Intersects(area=geography\'SRID=4326;POLYGON((-68.0 4.0, -61.0 4.0, -61.0 9.0, -68.0 9.0, -68.0 4.0))\')&\\$orderby=ContentDate/Start desc&\\$top=3&\\$select=Id,Name,ContentDate,Footprint"',
+    queryParameters: [
+      { name: '$filter', description: "Filtro OData estándar por colección ('SENTINEL-3'), tipo de producto ('OL_2_WFR' o 'SL_2_WST') e intersección espacial OData.CSC.Intersects", example: "Collection/Name eq 'SENTINEL-3' and contains(Name,'OL_2_WFR')" },
+      { name: '$orderby', description: 'Ordenación temporal por fecha de adquisición satelital', example: 'ContentDate/Start desc' },
+      { name: '$top', description: 'Número máximo de productos u órbitas a recuperar', example: '10' },
+      { name: '$select', description: 'Campos proyectados del producto STAC/OData', example: 'Id,Name,ContentDate,Footprint' }
+    ]
+  },
   /* =========================================================================
-   * 7. INAMEH - Red Hidrométrica Nacional (Web Scraping)
+   * 8. INAMEH - Red Hidrométrica Nacional (Web Scraping)
    * =========================================================================
    */
   {
@@ -303,7 +335,8 @@ export const TASK_TO_API_CONNECTION_MAP: Record<string, string> = {
   NASA_FIRMS: 'NASA_FIRMS_VIIRS_NOAA20',
   SENTINEL_1_SAR: 'COPERNICUS_CDSE_SENTINEL1_SAR',
   SENTINEL_2_MSI: 'COPERNICUS_CDSE_SENTINEL2_MSI',
-  HYDRO_TELEMETRY: 'HYDRO_TELEMETRY_ORINOCO',
+  SENTINEL_3_OLCI: 'COPERNICUS_CDSE_SENTINEL3_OLCI_SLSTR',
+  HYDRO_TELEMETRY: 'INAMEH_HIDROMETRIA_ORINOCO',
 };
 
 /**

@@ -141,27 +141,82 @@ export const SupabaseRpcService = {
   },
 
   /**
-   * RPC: get_hydrological_telemetry
+   * RPC & Live Table: get_hydrological_telemetry
+   * Carga los 4 nodos de estudio registrados de INAMEH cruzados con Sentinel-2 y Sentinel-3
+   * directamente desde Supabase hydrological_telemetry_readings
    */
   async getHydrologicalTelemetry(stationId?: string): Promise<{
     data: HydrologicalStation[];
-    source: 'supabase_rpc' | 'local_geojson';
+    source: 'supabase_rpc' | 'supabase_table' | 'api_backend' | 'local_geojson';
     error?: string;
   }> {
+    // 1. Intento primario: Endpoint backend /api/telemetry/stations que consulta directamente Supabase
+    try {
+      const res = await fetch('/api/telemetry/stations');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.stations && Array.isArray(json.stations) && json.stations.length > 0) {
+          const list = stationId ? json.stations.filter((s: HydrologicalStation) => s.id === stationId) : json.stations;
+          return { data: list, source: 'api_backend' };
+        }
+      }
+    } catch (e) {
+      // Continuar con consulta directa a Supabase
+    }
+
+    // 2. Consulta directa a Supabase (tabla hydrological_telemetry_readings)
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_hydrological_telemetry', {
+        const { data: rows, error: tblErr } = await supabase
+          .from('hydrological_telemetry_readings')
+          .select('*')
+          .order('reading_time', { ascending: false });
+
+        if (!tblErr && rows && rows.length > 0) {
+          const latestMap = new Map<string, any>();
+          rows.forEach((r: any) => {
+            if (!latestMap.has(r.station_name)) latestMap.set(r.station_name, r);
+          });
+
+          const mapped: HydrologicalStation[] = Array.from(latestMap.values()).map((r: any) => {
+            const baseMatch = INITIAL_HYDROLOGICAL_STATIONS.find(s => 
+              s.name.toLowerCase().includes(r.station_name.toLowerCase()) || 
+              r.station_name.toLowerCase().includes(s.name.toLowerCase())
+            ) || INITIAL_HYDROLOGICAL_STATIONS[0];
+
+            return {
+              ...baseMatch,
+              id: baseMatch.id,
+              name: r.station_name,
+              river: r.river_name || baseMatch.river,
+              coordinates: [Number(r.longitude) || baseMatch.coordinates[0], Number(r.latitude) || baseMatch.coordinates[1]],
+              currentLevelM: Number(r.stage_level_m) || baseMatch.currentLevelM,
+              turbidityNtu: Number(r.turbidity_ntu) || baseMatch.turbidityNtu,
+              mercuryEstimatedPpm: Number(r.estimated_mercury_ppm) || baseMatch.mercuryEstimatedPpm,
+              status: (r.alert_status === 'CRITICAL' ? 'ALERT_CRECIDA' : (r.alert_status === 'ELEVATED' ? 'ELEVATED' : 'OPTIMAL')) as any,
+              lastTelemetry: r.reading_time ? `${new Date(r.reading_time).toISOString().slice(0, 10)} ${new Date(r.reading_time).toTimeString().slice(0, 5)} UTC (Supabase / INAMEH)` : baseMatch.lastTelemetry,
+            };
+          });
+
+          const filtered = stationId ? mapped.filter(s => s.id === stationId) : mapped;
+          return { data: filtered, source: 'supabase_table' };
+        }
+
+        // Intento RPC si existe
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_hydrological_telemetry', {
           p_station_id: stationId || null
         });
 
-        if (!error && data) {
-          return { data: Array.isArray(data) && data.length > 0 ? data : INITIAL_HYDROLOGICAL_STATIONS, source: 'supabase_rpc' };
+        if (!rpcErr && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
+          return { data: rpcData, source: 'supabase_rpc' };
         }
       } catch (err: any) {
-        console.warn('Fallo llamada RPC get_hydrological_telemetry:', err);
+        console.warn('Fallo consulta directa a Supabase para hidrología:', err);
       }
     }
-    return { data: INITIAL_HYDROLOGICAL_STATIONS, source: 'local_geojson' };
+
+    const fallbackList = stationId ? INITIAL_HYDROLOGICAL_STATIONS.filter(s => s.id === stationId) : INITIAL_HYDROLOGICAL_STATIONS;
+    return { data: fallbackList, source: 'local_geojson' };
   },
 
   /**

@@ -305,11 +305,29 @@ export interface HydrologicalStation {
   criticalLevelM: number;
   flowRateM3s: number;
   turbidityNtu: number;
+  conductivityUsCm?: number; // Conductividad eléctrica µS/cm (Sentinel-3 OLCI / SLSTR proxy & in-situ)
   ph: number;
   dissolvedOxygenMgL: number;
   mercuryEstimatedPpm: number;
   status: 'OPTIMAL' | 'ELEVATED' | 'ALERT_CRECIDA' | 'ESTIAJE_CRITICO';
   lastTelemetry: string;
+  // Satélites cruzados que estudian las variables de turbidez, conductividad y pH
+  satelliteCrossReference?: {
+    turbiditySatellite: string; // e.g. 'Sentinel-2 MSI (B04 665nm / B08 NIR) & Sentinel-3 OLCI'
+    conductivitySatellite?: string; // e.g. 'Sentinel-3 OLCI / SLSTR + In-Situ INAMEH'
+    phSatellite?: string; // e.g. 'Sentinel-2 MSI (Absorción CDOM B01-B03)'
+    opticalSensorMission?: string; // e.g. 'Copernicus Sentinel-2A/B/C'
+    spectralBands?: string; // e.g. 'B03 (560nm), B04 (665nm), B08 (842nm)'
+    lastPassTime?: string;
+    corroborationStatus?: 'VERIFICADO_SATELITAL' | 'CALIBRADO_IN_SITU' | 'CORRELACION_OPTICA';
+    // Misión Sentinel-3 OLCI / SLSTR real verificable en CDSE OData
+    sentinel3ProductId?: string; // ID único OData del producto en Copernicus
+    sentinel3ProductName?: string; // p.ej. S3B_OL_2_WFR... o S3A_SL_2_WST...
+    sentinel3SensingTime?: string; // Fecha y hora ISO exacta de captura satelital
+    sentinel3OdataEndpoint?: string; // URL directa al catálogo OData para auditoría
+    sentinel3WaterTempC?: number; // Temperatura superficial del agua (°C de SLSTR)
+    sentinel3TsmGpm3?: number; // Materia Suspendida Total TSM (g/m³ de OLCI)
+  };
 }
 
 export interface ProtectedArea {
