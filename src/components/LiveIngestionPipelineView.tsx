@@ -1087,16 +1087,16 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
         {activeTab === 'LIVE_FEED' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3 bg-[#0b131e] p-4 rounded-xl border border-slate-800">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-mono text-slate-400">Filtrar por Fuente:</span>
-                <div className="flex items-center gap-1 bg-[#070d14] p-1 rounded-lg border border-slate-800">
+                <div className="flex items-center gap-1 bg-[#070d14] p-1 rounded-lg border border-slate-800 flex-wrap">
                   <button
                     onClick={() => setFeedFilter('ALL')}
                     className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                       feedFilter === 'ALL' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Todos ({firmsList.length + copernicusList.length + koboList.length})
+                    Todos ({liveFeedData?.totalCount ?? (firmsList.length + copernicusList.length + koboList.length)})
                   </button>
                   <button
                     onClick={() => setFeedFilter('NASA_FIRMS')}
@@ -1104,7 +1104,7 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
                       feedFilter === 'NASA_FIRMS' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    NASA FIRMS ({firmsList.length})
+                    NASA FIRMS ({liveFeedData?.counts?.nasaFirms ?? firmsList.length})
                   </button>
                   <button
                     onClick={() => setFeedFilter('COPERNICUS_SAR')}
@@ -1112,7 +1112,15 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
                       feedFilter === 'COPERNICUS_SAR' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Copernicus SAR ({copernicusList.length})
+                    Copernicus SAR ({liveFeedData?.counts?.copernicusSar ?? copernicusList.length})
+                  </button>
+                  <button
+                    onClick={() => setFeedFilter('SENTINEL_2_MSI')}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                      feedFilter === 'SENTINEL_2_MSI' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Sentinel-2 MSI ({liveFeedData?.counts?.sentinel2 ?? s2Tiles.length})
                   </button>
                   <button
                     onClick={() => setFeedFilter('KOBO_TOOLBOX')}
@@ -1120,13 +1128,24 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
                       feedFilter === 'KOBO_TOOLBOX' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Kobo Webhooks ({koboList.length})
+                    Telemetría / In Situ ({liveFeedData?.counts?.telemetry ?? koboList.length})
                   </button>
                 </div>
               </div>
 
-              <div className="text-xs font-mono text-slate-400">
-                Almacenamiento: <span className="text-emerald-400 font-bold">PostGIS + pgvector (Sincronizado)</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={fetchRealFeed}
+                  disabled={isLoadingFeed}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-mono border border-slate-700 transition-all disabled:opacity-50"
+                  title="Sincronizar feed real con Supabase"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFeed ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
+                  <span>{isLoadingFeed ? 'Leyendo Supabase...' : 'Actualizar Feed'}</span>
+                </button>
+                <div className="text-xs font-mono text-slate-400">
+                  Almacenamiento: <span className="text-emerald-400 font-bold">PostGIS + pgvector (Sincronizado)</span>
+                </div>
               </div>
             </div>
 
@@ -1145,134 +1164,69 @@ export const LiveIngestionPipelineView: React.FC<LiveIngestionPipelineViewProps>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-sans">
-                    {/* FIRMS rows */}
-                    {(feedFilter === 'ALL' || feedFilter === 'NASA_FIRMS') && firmsList.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1 rounded bg-amber-950 text-amber-400 border border-amber-800">
-                              <Flame className="w-3.5 h-3.5" />
-                            </span>
-                            <div>
-                              <div className="font-semibold text-white">{item.satellite}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{item.acqDate} {item.acqTime}</div>
-                            </div>
+                    {/* Render Real Database Items */}
+                    {liveFeedData && liveFeedData.items && liveFeedData.items.length > 0 ? (
+                      liveFeedData.items
+                        .filter(item => feedFilter === 'ALL' || item.source === feedFilter)
+                        .map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`p-1 rounded ${
+                                  item.source === 'NASA_FIRMS' ? 'bg-amber-950 text-amber-400 border border-amber-800' :
+                                  item.source === 'COPERNICUS_SAR' ? 'bg-sky-950 text-sky-400 border border-sky-800' :
+                                  item.source === 'SENTINEL_2_MSI' ? 'bg-teal-950 text-teal-400 border border-teal-800' :
+                                  'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                }`}>
+                                  {item.source === 'NASA_FIRMS' ? <Flame className="w-3.5 h-3.5" /> :
+                                   item.source === 'COPERNICUS_SAR' ? <Radar className="w-3.5 h-3.5" /> :
+                                   item.source === 'SENTINEL_2_MSI' ? <Satellite className="w-3.5 h-3.5" /> :
+                                   <Droplets className="w-3.5 h-3.5" />}
+                                </span>
+                                <div>
+                                  <div className="font-semibold text-white">{item.satellite}</div>
+                                  <div className="text-[10px] text-slate-400 font-mono">{item.acqDate} {item.acqTime}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-medium text-slate-200">{item.sectorName}</div>
+                              <div className="text-[11px] text-slate-400">{item.subBasin}</div>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
+                              {item.postgisGeomText.length > 28 ? item.postgisGeomText.slice(0, 28) + '...' : item.postgisGeomText}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[11px]">
+                              <span className="text-amber-400 font-bold">{item.criticalMetricsText}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                INDEXED (768-D)
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {onNavigateToMapWithCoords && (
+                                <button
+                                  onClick={() => onNavigateToMapWithCoords(item.latitude, item.longitude, 12)}
+                                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-sky-300 rounded text-xs font-mono"
+                                >
+                                  Ver Mapa
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                    ) : (
+                      /* Fallback while loading */
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-slate-400 font-mono">
+                          <div className="flex items-center justify-center gap-2">
+                            <RefreshCw className="w-4 h-4 text-sky-400 animate-spin" />
+                            <span>Cargando feed de datos reales desde Supabase...</span>
                           </div>
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-200">{item.sectorName}</div>
-                          <div className="text-[11px] text-slate-400">{item.subBasin}</div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
-                          {item.postgisGeomText}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px]">
-                          <span className="text-amber-400 font-bold">{item.frpMw} MW FRP</span>
-                          <span className="text-slate-400"> • {item.brightnessTempK} K</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
-                            INDEXED (768-D)
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {onNavigateToMapWithCoords && (
-                            <button
-                              onClick={() => onNavigateToMapWithCoords(item.latitude, item.longitude, 12)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-sky-300 rounded text-xs font-mono"
-                            >
-                              Ver Mapa
-                            </button>
-                          )}
-                        </td>
                       </tr>
-                    ))}
-
-                    {/* Copernicus rows */}
-                    {(feedFilter === 'ALL' || feedFilter === 'COPERNICUS_SAR') && copernicusList.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1 rounded bg-sky-950 text-sky-400 border border-sky-800">
-                              <Radar className="w-3.5 h-3.5" />
-                            </span>
-                            <div>
-                              <div className="font-semibold text-white">{item.mission}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{item.id}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-200">{item.sectorName}</div>
-                          <div className="text-[11px] text-slate-400">{item.subBasin}</div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
-                          {item.postgisGeomText.slice(0, 24)}...
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px]">
-                          <span className="text-red-400 font-bold">{item.affectedAreaHa} Ha</span>
-                          <span className="text-slate-400"> • {item.backscatterDiffDb} dB</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
-                            INDEXED (768-D)
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {onNavigateToMapWithCoords && (
-                            <button
-                              onClick={() => onNavigateToMapWithCoords(item.latitude, item.longitude, 12)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-sky-300 rounded text-xs font-mono"
-                            >
-                              Ver Mapa
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-
-                    {/* Kobo rows */}
-                    {(feedFilter === 'ALL' || feedFilter === 'KOBO_TOOLBOX') && koboList.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
-                              <Smartphone className="w-3.5 h-3.5" />
-                            </span>
-                            <div>
-                              <div className="font-semibold text-white">{item.source}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{item.submissionTime}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-200">{item.officerName}</div>
-                          <div className="text-[11px] text-slate-400">{item.sectorName} ({item.patrolUnit})</div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
-                          {item.postgisGeomText}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px]">
-                          <span className="text-red-400 font-bold">{item.mercuryDetectedPpm} ppm Hg</span>
-                          <span className="text-slate-400"> • {item.turbidityNtu} NTU</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
-                            INDEXED (768-D)
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {onNavigateToMapWithCoords && (
-                            <button
-                              onClick={() => onNavigateToMapWithCoords(item.latitude, item.longitude, 12)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-sky-300 rounded text-xs font-mono"
-                            >
-                              Ver Mapa
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -54,6 +54,8 @@ export const SupabaseRpcService = {
             const coords = f.geometry?.coordinates || [];
             return {
               ...f.properties,
+              sector: f.properties.sector || f.properties.sector_name || f.properties.location || 'Sector Amazónico',
+              subBasin: f.properties.subBasin || f.properties.sub_basin || 'Cuenca del Orinoco',
               latitude: f.properties.latitude ?? coords[1],
               longitude: f.properties.longitude ?? coords[0],
             };
@@ -72,17 +74,17 @@ export const SupabaseRpcService = {
         if (!tableErr && tableData && tableData.length > 0) {
           const mapped: HeatAnomaly[] = tableData.map((t: any) => ({
             id: t.firms_id || t.id,
-            title: t.sector_name || `Anomalía Térmica ${t.satellite}`,
-            location: t.sub_basin || 'Amazonía Venezolana',
+            sector: t.sector_name || `Anomalía Térmica ${t.satellite}`,
+            subBasin: t.sub_basin || 'Amazonía Venezolana',
             latitude: t.latitude,
             longitude: t.longitude,
             brightnessTempK: t.brightness_temp_k,
             frpMw: t.frp_mw,
-            confidence: t.confidence,
+            confidence: (t.confidence === 'h' || t.confidence === 'high') ? 'high' : ((t.confidence === 'l' || t.confidence === 'low') ? 'low' : 'nominal'),
             acqDate: t.acq_date,
             acqTime: t.acq_time,
-            satellite: t.satellite,
-            dayNight: t.day_night || 'D',
+            satellite: t.satellite || 'VIIRS-NOAA20',
+            dayNight: (t.day_night === 'N' ? 'N' : 'D'),
           }));
           return { data: mapped, source: 'supabase_rpc' };
         }

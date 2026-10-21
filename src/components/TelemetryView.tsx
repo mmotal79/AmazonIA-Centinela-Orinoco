@@ -3,10 +3,8 @@ import {
   Droplets, 
   Activity, 
   AlertTriangle, 
-  CheckCircle2, 
   ArrowUpRight, 
-  ArrowDownRight, 
-  Filter, 
+   Filter, 
   RefreshCw,
   Waves,
   Gauge,
@@ -270,4 +268,3 @@ export const TelemetryView: React.FC<TelemetryViewProps> = ({
     </div>
   );
 };
-export default TelemetryView;
